@@ -1,0 +1,350 @@
+{% extends "base.html" %}
+{% block title %}Patients{% endblock %}
+{% block header %}Patient Management{% endblock %}
+
+{% block content %}
+<!-- ── Count Cards ── -->
+<div class="metrics">
+  <div class="m-card blue">
+    <div class="m-top"><span class="m-label">Admitted</span><span class="m-icon">🏥</span></div>
+    <div class="m-val">{{ cn.admitted or 0 }}</div>
+  </div>
+  <div class="m-card red">
+    <div class="m-top"><span class="m-label">Critical</span><span class="m-icon">⚠️</span></div>
+    <div class="m-val">{{ cn.critical or 0 }}</div>
+  </div>
+  <div class="m-card green">
+    <div class="m-top"><span class="m-label">Discharged</span><span class="m-icon">✅</span></div>
+    <div class="m-val">{{ cn.discharged or 0 }}</div>
+  </div>
+  <div class="m-card purple">
+    <div class="m-top"><span class="m-label">Total Records</span><span class="m-icon">📋</span></div>
+    <div class="m-val">{{ cn.total or 0 }}</div>
+  </div>
+</div>
+
+<!-- ── Patient Table ── -->
+<div class="card">
+  <div class="card-h">
+    <span class="card-t">👥 Patient Records</span>
+    <button class="btn btn-p" onclick="openModal('addPatient')">➕ Admit Patient</button>
+  </div>
+  <div class="card-b np">
+    <table class="dt">
+      <thead>
+        <tr>
+          <th>Patient</th>
+          <th>Age/Gender</th>
+          <th>Condition</th>
+          <th>Severity</th>
+          <th>Department</th>
+          <th>Bed</th>
+          <th>Resources</th>
+          <th>Admitted</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in patients %}
+        <tr>
+          <td style="font-weight:600">{{ p.name }}</td>
+          <td>{{ p.age or '—' }}/{{ p.gender or '—' }}</td>
+          <td>{{ p.condition or '—' }}</td>
+          <td>
+            <span class="badge badge-{{ 'd' if p.severity=='Critical' else 'w' if p.severity=='Moderate' else 's' }}">
+              {{ p.severity }}
+            </span>
+          </td>
+          <td>{{ p.department_name or '—' }}</td>
+          <td><code class="bed-code">{{ p.bed_number or '—' }}</code></td>
+          <td style="font-size:12px;line-height:1.3">
+            <div>{{ p.assigned_staff_name or '—' }}</div>
+            <div>{{ p.assigned_ventilator_code or '—' }}/{{ p.assigned_oxygen_code or '—' }}</div>
+            {% if p.blood_group and p.blood_component and p.blood_units %}
+            <div style="font-size:11px;color:var(--text3)">Blood: {{ p.blood_group }} {{ p.blood_component }} ({{ p.blood_units }})</div>
+            {% endif %}
+          </td>
+          <td style="font-size:11px;color:var(--text3)">{{ p.admitted_at[:16] if p.admitted_at else '—' }}</td>
+          <td>
+            <span class="badge badge-{{ 's' if p.status=='Admitted' else 'n' }}">{{ p.status }}</span>
+          </td>
+          <td>
+            <div style="display:flex;gap:4px;">
+                {% if p.status == 'Admitted' %}
+                <form action="/patients/discharge/{{ p.id }}" method="POST" style="margin:0">
+                    <button type="submit" class="btn btn-sm btn-d">Discharge</button>
+                </form>
+                {% else %}
+                <span class="badge badge-n" style="align-self:center">Done</span>
+                {% endif %}
+                <button class="btn btn-sm btn-s" onclick="openEditPatient({{ p.id }}, '{{ p.name }}', {{ p.age or 0 }}, '{{ p.gender }}', '{{ p.condition }}', '{{ p.severity }}', {{ p.department_id or 1 }}, '{{ p.bed_number }}', '{{ p.status }}')">✏️</button>
+                <form action="/patients/delete/{{ p.id }}" method="POST" style="margin:0" onsubmit="return confirm('Delete patient permanently?')">
+                    <button type="submit" class="btn btn-sm btn-d" style="background:transparent;color:var(--text3)">🗑️</button>
+                </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+        {% if not patients %}
+        <tr>
+          <td colspan="9">
+            <div class="empty">
+              <div class="ei">👥</div>
+              <h3>No patient records</h3>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Add Patient Modal ── -->
+<div class="modal-bg" id="addPatient">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-h">
+      <h3>➕ Admit Patient</h3>
+      <button class="modal-x" onclick="closeModal('addPatient')">&times;</button>
+    </div>
+    <form method="POST" action="/patients/add" style="display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0">
+      <div class="modal-bd">
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Full Name</label>
+            <input type="text" name="name" class="fc" required placeholder="e.g. John Smith">
+          </div>
+          <div class="fg">
+            <label class="fl">Age</label>
+            <input type="number" name="age" class="fc" min="0" max="150" placeholder="35">
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Gender</label>
+            <select name="gender" class="fc">
+              <option value="M">Male</option>
+              <option value="F">Female</option>
+              <option value="O">Other</option>
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Severity</label>
+            <select name="severity" class="fc">
+              <option value="Stable">Stable</option>
+              <option value="Moderate">Moderate</option>
+              <option value="Critical">Critical</option>
+            </select>
+          </div>
+        </div>
+        <div class="fg">
+          <label class="fl">Condition / Diagnosis</label>
+          <input type="text" name="condition" class="fc" placeholder="e.g. Pneumonia, Fracture">
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Department</label>
+            <select name="department_id" class="fc">
+              {% for d in depts %}
+              <option value="{{ d.id }}">{{ d.icon }} {{ d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Available Bed</label>
+            <select name="bed_id" class="fc">
+              <option value="">Auto/No selection</option>
+              {% for b in available_beds %}
+              <option value="{{ b.id }}">{{ b.bed_code }} ({{ b.ward or 'N/A' }})</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Assign Staff</label>
+            <select name="staff_id" class="fc">
+              <option value="">None</option>
+              {% for s in available_staff %}
+              <option value="{{ s.id }}">{{ s.name }} ({{ s.role }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Ventilator</label>
+            <select name="ventilator_id" class="fc">
+              <option value="">None</option>
+              {% for v in available_vents %}
+              <option value="{{ v.id }}">{{ v.asset_code }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Oxygen Cylinder</label>
+            <select name="oxygen_id" class="fc">
+              <option value="">None</option>
+              {% for o in available_ox %}
+              <option value="{{ o.id }}">{{ o.asset_code }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Blood Usage (group/component/units)</label>
+            <div style="display:flex;gap:6px">
+              <input name="blood_group" class="fc" placeholder="A+" style="width:30%">
+              <input name="blood_component" class="fc" placeholder="RBC" style="width:40%">
+              <input name="blood_units" class="fc" type="number" min="0" placeholder="Units" style="width:30%">
+            </div>
+          </div>
+        </div>
+        <div class="fg">
+          <label class="fl">Notes</label>
+          <textarea name="notes" class="fc" rows="2" placeholder="Additional notes..."></textarea>
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button type="button" class="btn btn-s" onclick="closeModal('addPatient')">Cancel</button>
+        <button type="submit" class="btn btn-p">✔ Admit Patient</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Edit Patient Modal ── -->
+<div class="modal-bg" id="editPatient">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-h">
+      <h3>✏️ Edit Patient</h3>
+      <button class="modal-x" onclick="closeModal('editPatient')">&times;</button>
+    </div>
+    <form method="POST" id="editPatientForm" action="" style="display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0">
+      <div class="modal-bd">
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Full Name</label>
+            <input type="text" name="name" id="ep_name" class="fc" required>
+          </div>
+          <div class="fg">
+            <label class="fl">Age</label>
+            <input type="number" name="age" id="ep_age" class="fc" min="0" max="150">
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Gender</label>
+            <select name="gender" id="ep_gender" class="fc">
+              <option value="M">Male</option>
+              <option value="F">Female</option>
+              <option value="O">Other</option>
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Severity</label>
+            <select name="severity" id="ep_severity" class="fc">
+              <option value="Stable">Stable</option>
+              <option value="Moderate">Moderate</option>
+              <option value="Critical">Critical</option>
+            </select>
+          </div>
+        </div>
+        <div class="fg">
+          <label class="fl">Condition / Diagnosis</label>
+          <input type="text" name="condition" id="ep_cond" class="fc">
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Department</label>
+            <select name="department_id" id="ep_dept" class="fc">
+              {% for d in depts %}
+              <option value="{{ d.id }}">{{ d.icon }} {{ d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Bed Number</label>
+            <input type="text" name="bed_number" id="ep_bed" class="fc">
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Assign Staff</label>
+            <select name="staff_id" id="ep_staff" class="fc">
+              <option value="">None</option>
+              {% for s in available_staff %}
+              <option value="{{ s.id }}">{{ s.name }} ({{ s.role }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Ventilator</label>
+            <select name="ventilator_id" id="ep_vent" class="fc">
+              <option value="">None</option>
+              {% for v in available_vents %}
+              <option value="{{ v.id }}">{{ v.asset_code }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Oxygen Cylinder</label>
+            <select name="oxygen_id" id="ep_ox" class="fc">
+              <option value="">None</option>
+              {% for o in available_ox %}
+              <option value="{{ o.id }}">{{ o.asset_code }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Blood Usage (group/component/units)</label>
+            <div style="display:flex;gap:6px">
+              <input name="blood_group" id="ep_bgroup" class="fc" placeholder="A+" style="width:30%">
+              <input name="blood_component" id="ep_bcomp" class="fc" placeholder="RBC" style="width:40%">
+              <input name="blood_units" id="ep_bunits" class="fc" type="number" min="0" placeholder="Units" style="width:30%">
+            </div>
+          </div>
+        </div>
+        <div class="fg">
+            <label class="fl">Status</label>
+            <select name="status" id="ep_status" class="fc">
+                <option value="Admitted">Admitted</option>
+                <option value="Discharged">Discharged</option>
+            </select>
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button type="button" class="btn btn-s" onclick="closeModal('editPatient')">Cancel</button>
+        <button type="submit" class="btn btn-p">✔ Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openEditPatient(id, name, age, gender, cond, sev, dept, bed, status) {
+    document.getElementById('editPatientForm').action = '/patients/update/' + id;
+    document.getElementById('ep_name').value = name;
+    document.getElementById('ep_age').value = age;
+    document.getElementById('ep_gender').value = gender;
+    document.getElementById('ep_cond').value = cond;
+    document.getElementById('ep_severity').value = sev;
+    document.getElementById('ep_dept').value = dept;
+    document.getElementById('ep_bed').value = bed;
+    document.getElementById('ep_status').value = status;
+
+    document.getElementById('ep_staff').value = '';
+    document.getElementById('ep_vent').value = '';
+    document.getElementById('ep_ox').value = '';
+    document.getElementById('ep_bgroup').value = '';
+    document.getElementById('ep_bcomp').value = '';
+    document.getElementById('ep_bunits').value = '';
+
+    openModal('editPatient');
+}
+</script>
+{% endblock %}

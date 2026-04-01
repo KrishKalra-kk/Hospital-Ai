@@ -1,0 +1,915 @@
+{% extends "base.html" %}
+{% block title %}Resources{% endblock %}
+{% block header %}Resource Management{% endblock %}
+
+{% block content %}
+
+<!-- ══════════════════════════════════════════
+     TAB NAV
+════════════════════════════════════════════ -->
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab(this,'beds')">🛏️ Beds</button>
+  <button class="tab-btn"        onclick="switchTab(this,'blood')">🩸 Blood Bank</button>
+  <button class="tab-btn"        onclick="switchTab(this,'lifesupport')">🫁 Life Support</button>
+  <button class="tab-btn"        onclick="switchTab(this,'rfid')">📡 RFID Tracking</button>
+</div>
+
+<!-- ══════════════════════════════════════════
+     BEDS TAB
+════════════════════════════════════════════ -->
+<div id="tab-beds" class="tab-content active">
+
+  <!-- Bed Type Summary Cards -->
+  <div class="metrics">
+    {% set bed_colors = {'ICU':'red','General':'blue','Shared':'purple','Single':'green','Deluxe':'orange'} %}
+    {% set bed_icons  = {'ICU':'💉','General':'🛏️','Shared':'👥','Single':'🛏️','Deluxe':'⭐'} %}
+    {% for b in bed_summ %}
+    <div class="m-card {{ bed_colors.get(b.bed_type,'blue') }}">
+      <div class="m-top">
+        <span class="m-label">{{ b.bed_type }} Beds</span>
+        <span class="m-icon">{{ bed_icons.get(b.bed_type,'🛏️') }}</span>
+      </div>
+      <div class="m-val">{{ b.available }}<span style="font-size:16px;color:var(--text3)">/{{ b.total }}</span></div>
+      <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+        <span class="mini-stat occ">{{ b.occupied }} Occupied</span>
+        <span class="mini-stat avail">{{ b.available }} Free</span>
+        {% if b.maintenance %}<span class="mini-stat maint">{{ b.maintenance }} Maint.</span>{% endif %}
+        {% if b.reserved %}<span class="mini-stat res">{{ b.reserved }} Reserved</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Beds by Type sections (non-Shared) -->
+  {% for btype, blist in bed_by_type.items() %}
+  {% if btype != 'Shared' %}
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-h">
+      <span class="card-t">{{ bed_icons.get(btype,'🛏️') }} {{ btype }} Beds</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="badge badge-s">{{ blist|selectattr('status','eq','Available')|list|length }} free</span>
+        <span class="badge badge-d">{{ blist|selectattr('status','eq','Occupied')|list|length }} occupied</span>
+        <span class="badge badge-p">{{ blist|length }} total</span>
+        <button class="btn btn-sm btn-p" onclick="openAddBedModal('{{ btype }}')">+ Add</button>
+      </div>
+    </div>
+    <div class="card-b np">
+      <div class="bed-grid">
+        {% for bed in blist %}
+        <div class="bed-cell {{ 'bed-occupied' if bed.status=='Occupied' else 'bed-available' if bed.status=='Available' else 'bed-maint' if bed.status=='Maintenance' else 'bed-reserved' }}"
+             onclick="openBedModal({{ bed.id }})">
+          <div class="bed-code">{{ bed.bed_code }}</div>
+          <div class="bed-ward">{{ bed.ward or '—' }}</div>
+          <div class="bed-status-dot {{ 'dot-occ' if bed.status=='Occupied' else 'dot-avail' if bed.status=='Available' else 'dot-maint' }}"></div>
+          {% if bed.patient_name %}
+          <div class="bed-patient">{{ bed.patient_name }}</div>
+          <div class="bed-sev badge badge-{{ 'd' if bed.severity=='Critical' else 'w' if bed.severity=='Moderate' else 's' }}">{{ bed.severity }}</div>
+          {% else %}
+          <div class="bed-patient" style="color:var(--text3)">{{ bed.status }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+
+  <!-- Shared Beds Section (grouped by room) -->
+  {% if bed_by_type.get('Shared') %}
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-h">
+      <span class="card-t">👥 Shared Rooms</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        {% set shared_list = bed_by_type['Shared'] %}
+        <span class="badge badge-s">{{ shared_list|selectattr('status','eq','Available')|list|length }} free</span>
+        <span class="badge badge-d">{{ shared_list|selectattr('status','eq','Occupied')|list|length }} occupied</span>
+        <span class="badge badge-p">{{ shared_list|length }} beds</span>
+        <button class="btn btn-sm btn-p" onclick="openAddBedModal('Shared')">+ Add</button>
+      </div>
+    </div>
+    <div class="card-b np" style="padding:16px 20px">
+      {% set ns = namespace(rooms={}) %}
+      {% for bed in shared_list %}
+        {% if bed.room_number not in ns.rooms %}
+          {% set _ = ns.rooms.update({bed.room_number: []}) %}
+        {% endif %}
+        {% set _ = ns.rooms[bed.room_number].append(bed) %}
+      {% endfor %}
+      {% for room_num, beds in ns.rooms.items() %}
+      <div style="margin-bottom:16px;border:1px solid var(--border);border-radius:10px;padding:14px;background:var(--bg-primary)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div>
+            <span style="font-weight:700;font-size:14px;color:var(--cyan)">🏠 Room {{ room_num }}</span>
+            <span class="badge badge-p" style="margin-left:8px">{{ beds[0].capacity }}-Bed Room</span>
+          </div>
+          <div style="display:flex;gap:6px">
+            <span class="mini-stat occ">{{ beds|selectattr('status','eq','Occupied')|list|length }} used</span>
+            <span class="mini-stat avail">{{ beds|selectattr('status','eq','Available')|list|length }} free</span>
+          </div>
+        </div>
+        <div class="bed-grid">
+          {% for bed in beds %}
+          <div class="bed-cell {{ 'bed-occupied' if bed.status=='Occupied' else 'bed-available' if bed.status=='Available' else 'bed-maint' }}"
+               onclick="openBedModal({{ bed.id }})" style="min-width:100px">
+            <div class="bed-code">{{ bed.bed_code }}</div>
+            <div class="bed-status-dot {{ 'dot-occ' if bed.status=='Occupied' else 'dot-avail' if bed.status=='Available' else 'dot-maint' }}"></div>
+            {% if bed.patient_name %}
+            <div class="bed-patient">{{ bed.patient_name }}</div>
+            {% else %}
+            <div class="bed-patient" style="color:var(--text3)">{{ bed.status }}</div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Emergency Beds Section (separate overflow) ── -->
+  <div class="card" style="margin-bottom:20px;border:2px solid {{ 'var(--red)' if general_full else 'var(--border)' }}">
+    <div class="card-h" style="background:{{ 'rgba(239,68,68,0.1)' if general_full else 'transparent' }}">
+      <span class="card-t">
+        🚨 Emergency Beds
+        {% if general_full %}
+        <span class="badge badge-d" style="margin-left:8px;animation:pulse 2s infinite">⚠ GENERAL WARD FULL — Emergency Activated</span>
+        {% else %}
+        <span class="badge badge-s" style="margin-left:8px">Standby</span>
+        {% endif %}
+      </span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="mini-stat occ">{{ em_summ.occupied }} Occupied</span>
+        <span class="mini-stat avail">{{ em_summ.available }} Free</span>
+        <span class="badge badge-p">{{ em_summ.total }} total</span>
+        <button class="btn btn-sm btn-p" onclick="openAddBedModal('Emergency')">+ Add</button>
+      </div>
+    </div>
+    <div class="card-b np" style="padding:12px 20px">
+      {% if not general_full and em_summ.occupied == 0 %}
+      <div style="text-align:center;padding:24px;color:var(--text3)">
+        <div style="font-size:32px;margin-bottom:8px">🔒</div>
+        <div style="font-size:13px;font-weight:600">Emergency beds are on standby</div>
+        <div style="font-size:11px;margin-top:4px">These beds activate automatically when all General ward beds are occupied</div>
+      </div>
+      {% else %}
+      <div class="bed-grid">
+        {% for bed in emergency_beds %}
+        <div class="bed-cell {{ 'bed-occupied' if bed.status=='Occupied' else 'bed-available' if bed.status=='Available' else 'bed-maint' }}"
+             onclick="openBedModal({{ bed.id }})">
+          <div class="bed-code">{{ bed.bed_code }}</div>
+          <div class="bed-ward">{{ bed.ward or '—' }}</div>
+          <div class="bed-status-dot {{ 'dot-occ' if bed.status=='Occupied' else 'dot-avail' if bed.status=='Available' else 'dot-maint' }}"></div>
+          {% if bed.patient_name %}
+          <div class="bed-patient">{{ bed.patient_name }}</div>
+          <div class="bed-sev badge badge-{{ 'd' if bed.severity=='Critical' else 'w' if bed.severity=='Moderate' else 's' }}">{{ bed.severity }}</div>
+          {% else %}
+          <div class="bed-patient" style="color:var(--text3)">{{ bed.status }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     BLOOD BANK TAB
+════════════════════════════════════════════ -->
+<div id="tab-blood" class="tab-content">
+  <!-- Group Summary -->
+  <div class="metrics">
+    {% for g in blood_summ %}
+    {% set cr = g.total_available < 10 %}
+    <div class="m-card {{ 'red' if cr else 'blue' }}" style="cursor:pointer" onclick="filterBlood('{{ g.blood_group }}')">
+      <div class="m-top">
+        <span class="m-label">{{ g.blood_group }}</span>
+        <span class="m-icon">🩸</span>
+      </div>
+      <div class="m-val">{{ g.total_available }}</div>
+      <div class="m-sub {{ 'bad' if cr else 'good' }}">{{ 'CRITICAL' if cr else 'Available' }} units</div>
+      {% if g.critical_components %}
+      <div style="font-size:10px;color:var(--red);margin-top:4px">⚠ {{ g.critical_components }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Component filter buttons -->
+  <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+    <span style="font-size:12px;color:var(--text3);align-self:center">Filter by component:</span>
+    {% for comp in ['Whole Blood','RBC','Plasma','Platelets','FFP'] %}
+    <button class="btn btn-sm btn-s comp-filter" onclick="filterComponent('{{ comp }}')">{{ comp }}</button>
+    {% endfor %}
+    <button class="btn btn-sm btn-p" onclick="clearBloodFilter()">Show All</button>
+  </div>
+
+  <!-- Blood Inventory Table (all groups × components) -->
+  <div class="card">
+    <div class="card-h">
+      <span class="card-t">🩸 Blood Component Inventory</span>
+      <button class="btn btn-sm btn-p" style="margin-left:auto" onclick="openAddBloodModal()">+ Add Blood</button>
+    </div>
+    <div class="card-b np">
+      <table class="dt" id="bloodTable">
+        <thead>
+          <tr>
+            <th>Blood Group</th>
+            <th>Component</th>
+            <th>Total Units</th>
+            <th>Available</th>
+            <th>Reserved</th>
+            <th>Expiry</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for grp, items in blood_by_group.items() %}
+          {% for item in items %}
+          <tr class="blood-row" data-group="{{ grp }}" data-comp="{{ item.component }}">
+            <td style="font-weight:700">
+              <span class="blood-badge">{{ grp }}</span>
+            </td>
+            <td>{{ item.component }}</td>
+            <td>{{ item.units_total }}</td>
+            <td>
+              <strong style="color:{{ 'var(--red)' if item.units_available < 5 else 'var(--yellow)' if item.units_available < 10 else 'var(--green)' }}">
+                {{ item.units_available }}
+              </strong>
+            </td>
+            <td>{{ item.units_reserved }}</td>
+            <td style="font-size:11px;color:var(--text3)">{{ item.expiry_date or '—' }}</td>
+            <td>
+              <span class="badge badge-{{ 'd' if item.status=='critical' else 'w' if item.status=='low' else 's' }}">
+                {{ item.status|upper }}
+              </span>
+            </td>
+            <td>
+              <div style="display:flex;gap:4px;">
+                  <button class="btn btn-sm btn-s" onclick="openEditBloodModal({{ item.id }}, '{{ grp }}', '{{ item.component }}', {{ item.units_total }}, {{ item.units_available }}, {{ item.units_reserved }}, '{{ item.expiry_date }}')">✏️</button>
+                  <form action="{{ url_for('blood_delete_route', bid=item.id) }}" method="POST" style="margin:0" onsubmit="return confirm('Delete this record?')">
+                      <button type="submit" class="btn btn-sm btn-d">🗑️</button>
+                  </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     LIFE SUPPORT TAB
+════════════════════════════════════════════ -->
+<div id="tab-lifesupport" class="tab-content">
+  <!-- Summary -->
+  <div class="metrics">
+    {% for ls in ls_summ %}
+    <div class="m-card {{ 'red' if ls.in_use > ls.available else 'green' }}">
+      <div class="m-top">
+        <span class="m-label">{{ ls.equipment_type }}s</span>
+        <span class="m-icon">{{ '🫁' if 'Oxygen' in ls.equipment_type else '⚙️' }}</span>
+      </div>
+      <div class="m-val">{{ ls.in_use }}<span style="font-size:16px;color:var(--text3)">/{{ ls.total }}</span></div>
+      <div class="m-sub">{{ ls.available }} free · {{ ls.maintenance }} maint.</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Ventilators -->
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-h">
+      <span class="card-t">⚙️ Ventilators — Patient Links</span>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+         <span class="badge badge-d">{{ ls_by_type.get('Ventilator',[])|selectattr('status','eq','In Use')|list|length }} in use</span>
+         <button class="btn btn-sm btn-p" onclick="openAddLsModal('Ventilator')">+ Add</button>
+      </div>
+    </div>
+    <div class="card-b np">
+      <table class="dt">
+        <thead>
+          <tr><th>Asset</th><th>Status</th><th>Mode</th><th>Battery</th><th>Department</th><th>Patient</th><th>Condition</th><th>Since</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          {% for v in ls_by_type.get('Ventilator', []) %}
+          <tr>
+            <td><code class="bed-code">{{ v.asset_code }}</code></td>
+            <td>
+              <span class="badge badge-{{ 'd' if v.status=='In Use' else 's' if v.status=='Available' else 'w' }}">
+                {{ v.status }}
+              </span>
+            </td>
+            <td>{{ v.flow_rate or '—' }}</td>
+            <td>
+              {% if v.battery_hours is not none %}
+              <span style="color:{{ 'var(--red)' if v.battery_hours < 4 else 'var(--yellow)' if v.battery_hours < 8 else 'var(--green)' }}">
+                {{ v.battery_hours }}h
+              </span>
+              {% else %}—{% endif %}
+            </td>
+            <td>{{ v.dept_name or '—' }}</td>
+            <td>
+              {% if v.patient_name %}
+              <span style="font-weight:600;color:var(--cyan)">{{ v.patient_name }}</span>
+              {% else %}<span style="color:var(--text3)">—</span>{% endif %}
+            </td>
+            <td>
+              {% if v.condition %}
+              <span class="badge badge-{{ 'd' if v.severity=='Critical' else 'w' if v.severity=='Moderate' else 's' }}">
+                {{ v.condition }}
+              </span>
+              {% else %}—{% endif %}
+            </td>
+            <td style="font-size:11px;color:var(--text3)">{{ (v.started_at or '')[:16] or '—' }}</td>
+            <td>
+              <div style="display:flex;gap:4px;">
+                  <form action="{{ url_for('ls_delete_route', lid=v.id) }}" method="POST" style="margin:0" onsubmit="return confirm('Delete this record?')">
+                      <button type="submit" class="btn btn-sm btn-d">🗑️</button>
+                  </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Oxygen Cylinders -->
+  <div class="card">
+    <div class="card-h">
+      <span class="card-t">🫁 Oxygen Cylinders — Patient Links</span>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <span class="badge badge-d">{{ ls_by_type.get('Oxygen Cylinder',[])|selectattr('status','eq','In Use')|list|length }} in use</span>
+          <button class="btn btn-sm btn-p" onclick="openAddLsModal('Oxygen Cylinder')">+ Add</button>
+      </div>
+    </div>
+    <div class="card-b np">
+      <table class="dt">
+        <thead>
+          <tr><th>Asset</th><th>Status</th><th>Flow Rate</th><th>Pressure (PSI)</th><th>Department</th><th>Patient</th><th>Severity</th><th>Since</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          {% for o in ls_by_type.get('Oxygen Cylinder', [])[:30] %}
+          <tr>
+            <td><code class="bed-code">{{ o.asset_code }}</code></td>
+            <td>
+              <span class="badge badge-{{ 'd' if o.status=='In Use' else 's' if o.status=='Available' else 'w' }}">
+                {{ o.status }}
+              </span>
+            </td>
+            <td>{{ o.flow_rate or '—' }}</td>
+            <td>
+              {% if o.pressure_psi %}
+              <span style="color:{{ 'var(--red)' if o.pressure_psi < 500 else 'var(--yellow)' if o.pressure_psi < 1000 else 'var(--green)' }}">
+                {{ o.pressure_psi }}
+              </span>
+              {% else %}—{% endif %}
+            </td>
+            <td>{{ o.dept_name or '—' }}</td>
+            <td>
+              {% if o.patient_name %}
+              <span style="font-weight:600;color:var(--cyan)">{{ o.patient_name }}</span>
+              {% else %}<span style="color:var(--text3)">—</span>{% endif %}
+            </td>
+            <td>
+              {% if o.severity %}
+              <span class="badge badge-{{ 'd' if o.severity=='Critical' else 'w' if o.severity=='Moderate' else 's' }}">
+                {{ o.severity }}
+              </span>
+              {% else %}—{% endif %}
+            </td>
+            <td style="font-size:11px;color:var(--text3)">{{ (o.started_at or '')[:16] or '—' }}</td>
+            <td>
+              <div style="display:flex;gap:4px;">
+                  <form action="{{ url_for('ls_delete_route', lid=o.id) }}" method="POST" style="margin:0" onsubmit="return confirm('Delete this record?')">
+                      <button type="submit" class="btn btn-sm btn-d">🗑️</button>
+                  </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     RFID TRACKING TAB
+════════════════════════════════════════════ -->
+<div id="tab-rfid" class="tab-content">
+  <!-- Summary -->
+  <div class="metrics">
+    {% for ms in mobile_summ %}
+    <div class="m-card {{ 'blue' if ms.equipment_type=='Wheelchair' else 'purple' }}">
+      <div class="m-top">
+        <span class="m-label">{{ ms.equipment_type }}s</span>
+        <span class="m-icon">{{ '♿' if ms.equipment_type=='Wheelchair' else '🛺' }}</span>
+      </div>
+      <div class="m-val">{{ ms.available }}<span style="font-size:16px;color:var(--text3)">/{{ ms.total }}</span></div>
+      <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+        <span class="mini-stat avail">{{ ms.available }} Free</span>
+        <span class="mini-stat occ">{{ ms.in_use }} In Use</span>
+        {% if ms.missing %}<span class="mini-stat maint" style="background:rgba(239,68,68,0.2);color:var(--red)">{{ ms.missing }} Missing</span>{% endif %}
+        {% if ms.maintenance %}<span class="mini-stat maint">{{ ms.maintenance }} Maint.</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- RFID Map legend -->
+  <div class="rfid-legend">
+    <span class="rfid-l avail">● Available</span>
+    <span class="rfid-l inuse">● In Use</span>
+    <span class="rfid-l maint">● Maintenance</span>
+    <span class="rfid-l missing">● Missing</span>
+    <span style="font-size:11px;color:var(--text3);margin-left:auto">📡 RFID Live Tracking</span>
+  </div>
+
+  {% for etype, items in mob_by_type.items() %}
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-h">
+      <span class="card-t">{{ '♿' if etype=='Wheelchair' else '🛺' }} {{ etype }} Tracking</span>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <span class="badge badge-p">{{ items|length }} units</span>
+          <button class="btn btn-sm btn-p" onclick="openAddMobileModal('{{ etype }}')">+ Add</button>
+      </div>
+    </div>
+    <div class="card-b np">
+      <table class="dt">
+        <thead>
+          <tr><th>Asset Code</th><th>RFID Tag</th><th>Status</th><th>Location</th><th>Dept</th><th>Patient</th><th>Condition</th><th>Last Seen</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+          <tr onclick="openRfidDetail('{{ item.asset_code }}')" style="cursor:pointer">
+            <td>
+              <code class="bed-code">{{ item.asset_code }}</code>
+            </td>
+            <td style="font-family:monospace;font-size:11px;color:var(--text3)">{{ item.rfid_tag }}</td>
+            <td>
+              <span class="rfid-status-dot {{ 'dot-avail' if item.status=='Available' else 'dot-occ' if item.status=='In Use' else 'dot-maint' if item.status=='Maintenance' else 'dot-missing' }}"></span>
+              <span class="badge badge-{{ 's' if item.status=='Available' else 'd' if item.status=='Missing' else 'w' if item.status=='In Use' else 'n' }}">
+                {{ item.status }}
+              </span>
+            </td>
+            <td>
+              <span style="font-size:12px">📍 {{ item.current_location or '—' }}</span>
+            </td>
+            <td>{{ item.dept_name or '—' }}</td>
+            <td>
+              {% if item.patient_name %}
+              <span style="font-weight:600;color:var(--cyan)">{{ item.patient_name }}</span>
+              {% else %}<span style="color:var(--text3)">—</span>{% endif %}
+            </td>
+            <td>
+              <span class="badge badge-{{ 's' if item.condition=='Good' else 'w' if item.condition=='Fair' else 'd' }}">
+                {{ item.condition }}
+              </span>
+            </td>
+            <td style="font-size:11px;color:var(--text3)">{{ (item.last_seen or '')[:16] }}</td>
+            <td onclick="event.stopPropagation()">
+              <div style="display:flex;gap:4px;">
+                  <form action="{{ url_for('mobile_delete_route', mid=item.id) }}" method="POST" style="margin:0" onsubmit="return confirm('Delete this equipment?')">
+                      <button type="submit" class="btn btn-sm btn-d">🗑️</button>
+                  </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+
+  <!-- Legacy Resource CRUD -->
+  <div class="card">
+    <div class="card-h">
+      <span class="card-t">🗂️ Legacy Resource Records</span>
+      <button class="btn btn-sm btn-p" onclick="document.getElementById('resourcesModal').classList.add('show')">+ Add Resource</button>
+    </div>
+    <div class="card-b np">
+      <table class="dt">
+        <thead><tr><th>Name</th><th>Category</th><th>Total</th><th>Available</th><th>In Use</th><th>Maintenance</th><th>Action</th></tr></thead>
+        <tbody>
+          {% for res in legacy_resources %}
+          <tr>
+            <td>{{ res.name }}</td>
+            <td>{{ res.category }}</td>
+            <td>{{ res.total }}</td>
+            <td>{{ res.available }}</td>
+            <td>{{ res.in_use }}</td>
+            <td>{{ res.maintenance }}</td>
+            <td>
+              <form action="/resources/update" method="POST" style="display:inline-block;margin-right:4px">
+                <input type="hidden" name="resource_id" value="{{ res.id }}">
+                <input type="number" name="available" value="{{ res.available }}" min="0" style="width:60px">
+                <input type="number" name="in_use" value="{{ res.in_use }}" min="0" style="width:60px">
+                <input type="number" name="maintenance" value="{{ res.maintenance }}" min="0" style="width:60px">
+                <button type="submit" class="btn btn-sm btn-s">Update</button>
+              </form>
+              <form action="/resources/delete" method="POST" style="display:inline-block;margin:0" onsubmit="return confirm('Delete resource?')">
+                <input type="hidden" name="resource_id" value="{{ res.id }}">
+                <button type="submit" class="btn btn-sm btn-d">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="resourcesModal">
+    <div class="modal" style="max-width:500px">
+      <div class="modal-h">
+        <h3>➕ Add Resource</h3>
+        <button class="modal-x" onclick="document.getElementById('resourcesModal').classList.remove('show')">&times;</button>
+      </div>
+      <div class="modal-bd">
+        <form action="/resources/add" method="POST">
+          <div class="fg"><label>Name</label><input name="name" class="input" required></div>
+          <div class="fg"><label>Category</label><input name="category" class="input" required></div>
+          <div class="fg"><label>Total</label><input name="total" type="number" class="input" value="0" min="0"></div>
+          <div class="fg"><label>Available</label><input name="available" type="number" class="input" value="0" min="0"></div>
+          <div class="fg"><label>In Use</label><input name="in_use" type="number" class="input" value="0" min="0"></div>
+          <div class="fg"><label>Maintenance</label><input name="maintenance" type="number" class="input" value="0" min="0"></div>
+          <div style="margin-top:12px;text-align:right"><button type="submit" class="btn btn-p">Add Resource</button></div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══════════════════════════════════════════
+     BED DETAIL MODAL (dynamic via API)
+════════════════════════════════════════════ -->
+<div class="modal-bg" id="bedModal">
+  <div class="modal" style="max-width:580px">
+    <div class="modal-h">
+      <h3 id="bedModalTitle">🛏️ Bed Detail</h3>
+      <button class="modal-x" onclick="closeModal('bedModal')">&times;</button>
+    </div>
+    <div class="modal-bd" id="bedModalBody">
+      <div style="text-align:center;padding:40px;color:var(--text3)">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<!-- RFID Detail Modal -->
+<div class="modal-bg" id="rfidModal">
+  <div class="modal" style="max-width:500px">
+    <div class="modal-h">
+      <h3 id="rfidModalTitle">📡 RFID Device Detail</h3>
+      <button class="modal-x" onclick="closeModal('rfidModal')">&times;</button>
+    </div>
+    <div class="modal-bd" id="rfidModalBody">
+      <div style="text-align:center;padding:40px;color:var(--text3)">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<!-- BED ADD MODAL -->
+<div class="modal-bg" id="addBedModal">
+  <div class="modal" style="max-width:540px">
+    <div class="modal-h">
+      <h3 id="addBedTitle">🛏️ Add Bed</h3>
+      <button class="modal-x" onclick="closeModal('addBedModal')">&times;</button>
+    </div>
+    <form action="/resources/bed/add" method="POST" style="display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0">
+      <div class="modal-bd">
+        <input type="hidden" name="bed_type" id="addBedType">
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Bed Code</label>
+            <input type="text" name="bed_code" required class="fc" placeholder="e.g. ICU-01">
+          </div>
+          <div class="fg">
+            <label class="fl">Ward</label>
+            <input type="text" name="ward" class="fc" placeholder="e.g. Ward A">
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Department</label>
+            <select name="department_id" class="fc">
+              {% for d in depts %}
+              <option value="{{ d.id }}">{{ d.icon }} {{ d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Floor</label>
+            <input type="number" name="floor" class="fc" value="1" min="0">
+          </div>
+        </div>
+        <div class="fg">
+          <label class="fl">Notes</label>
+          <input type="text" name="notes" class="fc" placeholder="Optional notes">
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button type="button" class="btn btn-s" onclick="closeModal('addBedModal')">Cancel</button>
+        <button type="submit" class="btn btn-p">✔ Save Bed</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- BLOOD ADD/EDIT MODAL -->
+<div class="modal-bg" id="bloodModal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-h">
+      <h3 id="bloodTitle">🩸 Blood Inventory</h3>
+      <button class="modal-x" onclick="closeModal('bloodModal')">&times;</button>
+    </div>
+    <form id="bloodForm" action="/resources/blood/add" method="POST" style="display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0">
+      <div class="modal-bd">
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Blood Group</label>
+            <select name="blood_group" id="b_group" class="fc" required>
+              <option value="">Select Group</option>
+              <option value="A+">A+</option><option value="A-">A−</option>
+              <option value="B+">B+</option><option value="B-">B−</option>
+              <option value="O+">O+</option><option value="O-">O−</option>
+              <option value="AB+">AB+</option><option value="AB-">AB−</option>
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Component</label>
+            <select name="component" id="b_comp" class="fc" required>
+              <option value="">Select Component</option>
+              <option>Whole Blood</option>
+              <option>RBC</option>
+              <option>Plasma</option>
+              <option>Platelets</option>
+              <option>FFP</option>
+            </select>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Total Units</label>
+            <input type="number" name="units_total" id="b_total" class="fc" required value="0" min="0">
+          </div>
+          <div class="fg">
+            <label class="fl">Available</label>
+            <input type="number" name="units_available" id="b_avail" class="fc" required value="0" min="0">
+          </div>
+          <div class="fg">
+            <label class="fl">Reserved</label>
+            <input type="number" name="units_reserved" id="b_resv" class="fc" required value="0" min="0">
+          </div>
+        </div>
+        <div class="fg">
+          <label class="fl">Expiry Date</label>
+          <input type="date" name="expiry_date" id="b_exp" class="fc">
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button type="button" class="btn btn-s" onclick="closeModal('bloodModal')">Cancel</button>
+        <button type="submit" class="btn btn-p">✔ Save Record</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MOBILE EQUIPMENT ADD MODAL -->
+<div class="modal-bg" id="addMobileModal">
+  <div class="modal" style="max-width:540px">
+    <div class="modal-h">
+      <h3 id="addMobileTitle">📡 Add Mobile Equipment</h3>
+      <button class="modal-x" onclick="closeModal('addMobileModal')">&times;</button>
+    </div>
+    <form action="/resources/mobile/add" method="POST" style="display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0">
+      <div class="modal-bd">
+        <input type="hidden" name="equipment_type" id="addMobileType">
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Asset Code</label>
+            <input type="text" name="asset_code" class="fc" required placeholder="e.g. WC-001">
+          </div>
+          <div class="fg">
+            <label class="fl">Department</label>
+            <select name="department_id" class="fc">
+              {% for d in depts %}
+              <option value="{{ d.id }}">{{ d.icon }} {{ d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Location</label>
+            <input type="text" name="current_location" class="fc" placeholder="e.g. Corridor A">
+          </div>
+          <div class="fg">
+            <label class="fl">Condition</label>
+            <select name="condition" class="fc">
+              <option>Good</option>
+              <option>Fair</option>
+              <option>Poor</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button type="button" class="btn btn-s" onclick="closeModal('addMobileModal')">Cancel</button>
+        <button type="submit" class="btn btn-p">✔ Save Equipment</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- LIFE SUPPORT ADD MODAL -->
+<div class="modal-bg" id="addLsModal">
+  <div class="modal" style="max-width:540px">
+    <div class="modal-h">
+      <h3 id="addLsTitle">🫁 Add Life Support</h3>
+      <button class="modal-x" onclick="closeModal('addLsModal')">&times;</button>
+    </div>
+    <form action="/resources/life_support/add" method="POST" style="display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0">
+      <div class="modal-bd">
+        <input type="hidden" name="equipment_type" id="addLsType">
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Asset Code</label>
+            <input type="text" name="asset_code" class="fc" required placeholder="e.g. VENT-001">
+          </div>
+          <div class="fg">
+            <label class="fl">Department</label>
+            <select name="department_id" class="fc">
+              {% for d in depts %}
+              <option value="{{ d.id }}">{{ d.icon }} {{ d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="fg">
+          <label class="fl">Notes</label>
+          <input type="text" name="notes" class="fc" placeholder="Optional notes">
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button type="button" class="btn btn-s" onclick="closeModal('addLsModal')">Cancel</button>
+        <button type="submit" class="btn btn-p">✔ Save Life Support</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Tab switching ──
+function switchTab(btn, tabId) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-' + tabId).classList.add('active');
+}
+
+// ── Blood filters ──
+function filterBlood(group) {
+  document.querySelectorAll('.blood-row').forEach(r => {
+    r.style.display = (r.dataset.group === group) ? '' : 'none';
+  });
+}
+function filterComponent(comp) {
+  document.querySelectorAll('.blood-row').forEach(r => {
+    r.style.display = (r.dataset.comp === comp) ? '' : 'none';
+  });
+}
+function clearBloodFilter() {
+  document.querySelectorAll('.blood-row').forEach(r => r.style.display = '');
+}
+
+// ── CRUD modal helpers ──
+function openAddBedModal(type) {
+    document.getElementById('addBedType').value = type;
+    document.getElementById('addBedTitle').textContent = '🛏️ Add ' + type + ' Bed';
+    openModal('addBedModal');
+}
+function openAddMobileModal(type) {
+    document.getElementById('addMobileType').value = type;
+    document.getElementById('addMobileTitle').textContent = '📡 Add ' + type;
+    openModal('addMobileModal');
+}
+function openAddLsModal(type) {
+    document.getElementById('addLsType').value = type;
+    document.getElementById('addLsTitle').textContent = '🫁 Add ' + type;
+    openModal('addLsModal');
+}
+function openAddBloodModal() {
+    document.getElementById('bloodTitle').textContent = '🩸 Add Blood Inventory';
+    let f = document.getElementById('bloodForm');
+    f.reset();
+    f.action = '/resources/blood/add';
+    document.getElementById('b_group').disabled = false;
+    document.getElementById('b_comp').disabled = false;
+    openModal('bloodModal');
+}
+function openEditBloodModal(id, grp, comp, tot, av, res, exp) {
+    document.getElementById('bloodTitle').textContent = '🩸 Edit Inventory';
+    let f = document.getElementById('bloodForm');
+    f.action = '/resources/blood/' + id + '/update';
+    document.getElementById('b_group').value = grp;
+    document.getElementById('b_group').disabled = true;
+    document.getElementById('b_comp').value = comp;
+    document.getElementById('b_comp').disabled = true;
+    document.getElementById('b_total').value = tot;
+    document.getElementById('b_avail').value = av;
+    document.getElementById('b_resv').value = res;
+    document.getElementById('b_exp').value = exp;
+    openModal('bloodModal');
+}
+
+// ── Bed modal ──
+function openBedModal(bedId) {
+  document.getElementById('bedModalBody').innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">⏳ Loading...</div>';
+  openModal('bedModal');
+  fetch('/api/bed/' + bedId)
+    .then(r => r.json())
+    .then(bed => {
+      const st = bed.status;
+      const stColor = st === 'Occupied' ? 'var(--red)' : st === 'Available' ? 'var(--green)' : 'var(--yellow)';
+      const html = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+          <div class="detail-row"><span class="detail-lbl">Bed Code</span><code class="bed-code">${bed.bed_code}</code></div>
+          <div class="detail-row"><span class="detail-lbl">Type</span><span class="badge badge-p">${bed.bed_type}</span></div>
+          <div class="detail-row"><span class="detail-lbl">Status</span><span style="font-weight:700;color:${stColor}">${st}</span></div>
+          <div class="detail-row"><span class="detail-lbl">Ward</span>${bed.ward || '—'}</div>
+          <div class="detail-row"><span class="detail-lbl">Floor</span>Floor ${bed.floor || '—'}</div>
+          <div class="detail-row"><span class="detail-lbl">Department</span>${bed.dept_name || '—'}</div>
+        </div>
+        ${bed.patient_name ? `
+        <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px">
+          <div style="font-size:12px;font-weight:700;color:var(--cyan);margin-bottom:10px;text-transform:uppercase;letter-spacing:1px">👤 Patient Details</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="detail-row"><span class="detail-lbl">Name</span><strong>${bed.patient_name}</strong></div>
+            <div class="detail-row"><span class="detail-lbl">Age / Gender</span>${bed.age || '—'} / ${bed.gender || '—'}</div>
+            <div class="detail-row"><span class="detail-lbl">Condition</span>${bed.condition || '—'}</div>
+            <div class="detail-row"><span class="detail-lbl">Severity</span><span class="badge badge-${bed.severity==='Critical'?'d':bed.severity==='Moderate'?'w':'s'}">${bed.severity}</span></div>
+            <div class="detail-row" style="grid-column:1/-1"><span class="detail-lbl">Admitted At</span>${(bed.admitted_at||'').substring(0,16)}</div>
+          </div>
+        </div>` : `<div class="empty" style="padding:20px"><div class="ei">✅</div><p>Bed is ${st}</p></div>`}
+        ${bed.notes ? `<div class="detail-row"><span class="detail-lbl">Notes</span>${bed.notes}</div>` : ''}
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+          <div style="font-size:10px;color:var(--text3)">Last updated: ${(bed.last_updated||'').substring(0,16)}</div>
+          ${(st === 'Available' || st === 'Maintenance') ? `
+          <form action="/resources/bed/${bed.id}/toggle_maintenance" method="POST" style="margin:0">
+            <button type="submit" class="btn btn-sm ${st === 'Maintenance' ? 'btn-s' : 'btn-w'}">
+              ${st === 'Maintenance' ? '✅ Restore to Available' : '🔧 Set to Maintenance'}
+            </button>
+          </form>` : ''}
+        </div>
+      `;
+      document.getElementById('bedModalTitle').textContent = '🛏️ ' + bed.bed_code;
+      document.getElementById('bedModalBody').innerHTML = html;
+    })
+    .catch(() => { document.getElementById('bedModalBody').innerHTML = '<div class="empty"><div class="ei">❌</div><h3>Failed to load</h3></div>'; });
+}
+
+// ── RFID modal ──
+function openRfidDetail(assetCode) {
+  document.getElementById('rfidModalBody').innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">⏳ Loading...</div>';
+  openModal('rfidModal');
+  fetch('/api/rfid/' + assetCode)
+    .then(r => r.json())
+    .then(d => {
+      const stColor = d.status==='Available'?'var(--green)':d.status==='In Use'?'var(--yellow)':d.status==='Missing'?'var(--red)':'var(--text3)';
+      const html = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+          <div class="detail-row"><span class="detail-lbl">Asset Code</span><code class="bed-code">${d.asset_code}</code></div>
+          <div class="detail-row"><span class="detail-lbl">Type</span>${d.equipment_type}</div>
+          <div class="detail-row" style="grid-column:1/-1"><span class="detail-lbl">RFID Tag</span><code style="font-size:11px;color:var(--cyan)">${d.rfid_tag}</code></div>
+          <div class="detail-row"><span class="detail-lbl">Status</span><span style="font-weight:700;color:${stColor}">${d.status}</span></div>
+          <div class="detail-row"><span class="detail-lbl">Condition</span><span class="badge badge-${d.condition==='Good'?'s':d.condition==='Fair'?'w':'d'}">${d.condition}</span></div>
+          <div class="detail-row"><span class="detail-lbl">Location</span>📍 ${d.current_location||'—'}</div>
+          <div class="detail-row"><span class="detail-lbl">Department</span>${d.dept_name||'—'}</div>
+        </div>
+        ${d.patient_name ? `
+        <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:14px">
+          <div style="font-size:11px;font-weight:700;color:var(--cyan);margin-bottom:8px">👤 Assigned Patient</div>
+          <strong>${d.patient_name}</strong>
+          ${d.patient_condition ? ` — ${d.patient_condition}` : ''}
+        </div>` : ''}
+        <div style="font-size:10px;color:var(--text3);margin-top:10px">📡 Last RFID ping: ${(d.last_seen||'').substring(0,16)||'—'}</div>
+      `;
+      document.getElementById('rfidModalTitle').textContent = '📡 ' + d.asset_code + ' — ' + d.equipment_type;
+      document.getElementById('rfidModalBody').innerHTML = html;
+    });
+}
+</script>
+{% endblock %}

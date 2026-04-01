@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block header %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- ── Metric Cards ── -->
+<div class="metrics">
+  <div class="m-card blue">
+    <div class="m-top"><span class="m-label">Active Patients</span><span class="m-icon">👥</span></div>
+    <div class="m-val">{{ pc.admitted or 0 }}</div>
+    <div class="m-sub {{ 'bad' if (pc.critical or 0) > 3 else '' }}">{{ pc.critical or 0 }} critical</div>
+  </div>
+  <div class="m-card green">
+    <div class="m-top"><span class="m-label">Beds Available</span><span class="m-icon">🛏️</span></div>
+    <div class="m-val">{{ ba }}</div>
+    <div class="m-sub {{ 'bad' if bu > 80 else 'good' }}">{{ bu }}% utilized</div>
+  </div>
+  <div class="m-card purple">
+    <div class="m-top"><span class="m-label">Staff On Duty</span><span class="m-icon">👨‍⚕️</span></div>
+    <div class="m-val">{{ sod }}</div>
+    <div class="m-sub">of {{ ts }} total staff</div>
+  </div>
+  <div class="m-card cyan">
+    <div class="m-top"><span class="m-label">AI: Next Hour</span><span class="m-icon">🤖</span></div>
+    <div class="m-val">{{ pred.patients_next_hour }}</div>
+    <div class="m-sub {{ 'bad' if pred.risk_patients in ['High','Critical'] else 'good' }}">
+      {{ pred.risk_patients }} risk · {{ pred.confidence_patients }}% conf.
+    </div>
+  </div>
+  <div class="m-card orange">
+    <div class="m-top"><span class="m-label">Beds Needed 24h</span><span class="m-icon">📊</span></div>
+    <div class="m-val">{{ pred.beds_needed_24h }}</div>
+    <div class="m-sub {{ 'bad' if pred.risk_beds in ['High','Critical'] else '' }}">{{ pred.risk_beds }} demand</div>
+  </div>
+  <div class="m-card red">
+    <div class="m-top"><span class="m-label">Staff Needed 24h</span><span class="m-icon">👩‍⚕️</span></div>
+    <div class="m-val">{{ pred.staff_needed_24h }}</div>
+    <div class="m-sub {{ 'bad' if pred.risk_staff in ['High','Critical'] else '' }}">{{ pred.risk_staff }} demand</div>
+  </div>
+</div>
+
+<!-- ── Charts Row 1: Forecast + Bed Breakdown ── -->
+<div class="charts-row">
+  <div class="card">
+    <div class="card-h">
+      <span class="card-t">📈 Hourly Patient Forecast (24h)</span>
+      <span class="badge badge-p">AI Model</span>
+    </div>
+    <div class="card-b">
+      <div class="chart-wrap">
+        <canvas id="forecastChart"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-h">
+      <span class="card-t">🛏️ Bed Utilization by Type</span>
+      <span class="badge badge-i">{{ bt }} total</span>
+    </div>
+    <div class="card-b">
+      <div class="chart-wrap">
+        <canvas id="bedPieChart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Charts Row 2: Resource Usage + Bed Availability Bar ── -->
+<div class="charts-row">
+  <div class="card">
+    <div class="card-h">
+      <span class="card-t">📊 Bed Availability (Occupied vs Free)</span>
+    </div>
+    <div class="card-b">
+      <div class="chart-wrap">
+        <canvas id="bedBarChart"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-h"><span class="card-t">🍩 Equipment Usage</span></div>
+    <div class="card-b">
+      <div class="chart-wrap">
+        <canvas id="donutChart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Alerts & Recommendations ── -->
+<div class="charts-row">
+  <div class="card">
+    <div class="card-h">
+      <span class="card-t">🚨 Live System Alerts</span>
+      <a href="/alerts" class="btn btn-sm btn-s">View All →</a>
+    </div>
+    <div class="card-b np">
+      {% if alerts %}
+        {% for a in alerts[:5] %}
+        <div class="al">
+          <span class="al-dot {{ 'cr' if a.severity=='CRITICAL' else 'wr' if a.severity=='WARNING' else 'inf' if a.severity=='INFO' else 'nr' }}"></span>
+          <div class="al-c">
+            <div class="al-msg">{{ a.message }}</div>
+            <div class="al-meta">{{ a.severity }}{% if a.department %} · {{ a.department }}{% endif %} · {{ a.created_at }}</div>
+          </div>
+          <span class="badge badge-{{ 'd' if a.severity=='CRITICAL' else 'w' if a.severity=='WARNING' else 'i' }}">{{ a.severity }}</span>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty"><div class="ei">✅</div><h3>All Clear</h3></div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-h"><span class="card-t">💡 AI Recommendations</span></div>
+    <div class="card-b np">
+      {% if recs %}
+        {% for r in recs %}
+        <div class="al">
+          <span class="al-dot {{ 'cr' if r.priority=='High' else 'wr' if r.priority=='Medium' else 'inf' }}"></span>
+          <div class="al-c">
+            <div class="al-msg">{{ r.action }}</div>
+            <div class="al-meta">Priority: {{ r.priority }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty"><div class="ei">🤖</div><h3>System Optimal</h3></div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const forecastLabels = {{ forecast_labels | tojson }};
+  const forecastPatients = {{ forecast_patients | tojson }};
+  const forecastBeds = {{ forecast_beds | tojson }};
+  initCompare('forecastChart', forecastLabels, [
+    { label: 'Predicted Patients', data: forecastPatients },
+    { label: 'Beds Needed',        data: forecastBeds },
+  ]);
+  initDonut('donutChart', {{ rl | tojson }}, {{ rd | tojson }});
+
+  // Bed utilization pie chart
+  const bedLabels = {{ bed_type_labels | tojson }};
+  const bedOcc = {{ bed_type_occ | tojson }};
+  initPie('bedPieChart', bedLabels, bedOcc);
+
+  // Bed availability bar chart (occupied vs free)
+  initBar('bedBarChart', bedLabels, [
+    { label: 'Occupied', data: bedOcc },
+    { label: 'Available', data: {{ bed_type_avail | tojson }} },
+  ]);
+</script>
+{% endblock %}

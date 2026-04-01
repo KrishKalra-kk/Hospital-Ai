@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Alerts{% endblock %}
+{% block header %}Alert Center{% endblock %}
+
+{% block content %}
+<!-- ── Count Cards ── -->
+<div class="metrics">
+  <div class="m-card red">
+    <div class="m-top"><span class="m-label">Pending</span><span class="m-icon">⏳</span></div>
+    <div class="m-val">{{ ac.pending or 0 }}</div>
+    <div class="m-sub bad">requires action</div>
+  </div>
+  <div class="m-card orange">
+    <div class="m-top"><span class="m-label">Critical</span><span class="m-icon">🔴</span></div>
+    <div class="m-val">{{ ac.critical or 0 }}</div>
+  </div>
+  <div class="m-card green">
+    <div class="m-top"><span class="m-label">Warning</span><span class="m-icon">⚠️</span></div>
+    <div class="m-val">{{ (ac.total or 0) - (ac.critical or 0) }}</div>
+  </div>
+  <div class="m-card blue">
+    <div class="m-top"><span class="m-label">Total</span><span class="m-icon">📋</span></div>
+    <div class="m-val">{{ ac.total or 0 }}</div>
+  </div>
+</div>
+
+<!-- ── Live Alert List ── -->
+<div class="card">
+  <div class="card-h">
+    <span class="card-t">🚨 Live System Alerts</span>
+    <span class="badge badge-p" style="font-size:11px">Auto-generated from real data</span>
+  </div>
+  <div class="card-b np">
+    {% for a in alerts %}
+    <div class="al">
+      <span
+        class="al-dot {{ 'cr' if a.severity=='CRITICAL' else 'wr' if a.severity=='WARNING' else 'inf' }}"></span>
+      <div class="al-c">
+        <div class="al-msg">{{ a.message }}</div>
+        <div class="al-meta">
+          {{ a.severity }} · {{ a.type }}
+          {% if a.department %} · {{ a.department }}{% endif %}
+          · {{ a.created_at }}
+        </div>
+      </div>
+      <div>
+        <span class="badge badge-{{ 'd' if a.severity=='CRITICAL' else 'w' if a.severity=='WARNING' else 's' }}">
+          {{ a.severity }}
+        </span>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">
+      <div class="ei">✅</div>
+      <h3>No alerts</h3>
+      <p>All systems operational</p>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

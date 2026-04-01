@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}AI Predictions{% endblock %}
+{% block header %}AI Predictions{% endblock %}
+
+{% block content %}
+<!-- ── Model Metrics ── -->
+<div class="card" style="margin-bottom:20px">
+  <div class="card-h">
+    <span class="card-t">🧠 Model Performance (Trained on 2,160 hospital records)</span>
+    <span class="badge badge-s">Live ML</span>
+  </div>
+  <div class="card-b">
+    <div class="model-meta">
+      <div class="meta-card">
+        <div class="meta-val">{{ meta.patients_r2 }}</div>
+        <div class="meta-lbl">Patient Model R²</div>
+      </div>
+      <div class="meta-card">
+        <div class="meta-val">{{ meta.beds_r2 }}</div>
+        <div class="meta-lbl">Bed Demand R²</div>
+      </div>
+      <div class="meta-card">
+        <div class="meta-val">{{ meta.staff_r2 }}</div>
+        <div class="meta-lbl">Staff Demand R²</div>
+      </div>
+    </div>
+    <p style="font-size:11px;color:var(--text3);margin-top:12px">
+      Models: GradientBoosting (patient admissions) + RandomForest (bed & staff demand).
+      Features: hour of day, day of week, season, bed/ICU occupancy, ER arrivals, staff count, equipment load.
+    </p>
+  </div>
+</div>
+
+<div class="charts-row">
+  <!-- ── Prediction Simulator ── -->
+  <div class="card">
+    <div class="card-h">
+      <span class="card-t">🔮 Real-Time Predictor</span>
+      <span class="badge badge-p">Gradient Boosting + RF</span>
+    </div>
+    <div class="card-b">
+      <div class="fr">
+        <div class="fg">
+          <label class="fl">Hour of Day (0–23)</label>
+          <input type="number" id="ph" class="fc" value="{{ current_hour }}" min="0" max="23">
+        </div>
+        <div class="fg">
+          <label class="fl">Beds Available</label>
+          <input type="number" id="pb" class="fc" value="{{ ba }}" min="0">
+        </div>
+      </div>
+      <div class="fr">
+        <div class="fg">
+          <label class="fl">Staff on Duty</label>
+          <input type="number" id="ps" class="fc" value="{{ sa }}" min="0">
+        </div>
+        <div class="fg">
+          <label class="fl">ER Arrivals (last hr)</label>
+          <input type="number" id="per" class="fc" value="5" min="0">
+        </div>
+      </div>
+      <button id="pred-btn" class="btn btn-p btn-full" onclick="runPrediction()">🤖 Run Prediction</button>
+
+      <div id="pred-res" style="display:none">
+        <div class="pred-result">
+          <div class="pred-num" id="pv">—</div>
+          <div class="pred-lbl">Predicted Patient Admissions (Next Hour)</div>
+          <div class="pred-row">
+            <div class="pred-d">
+              <div class="pred-dv" id="pb_need">—</div>
+              <div class="pred-dl">Beds Needed 24h</div>
+            </div>
+            <div class="pred-d">
+              <div class="pred-dv" id="ps_need">—</div>
+              <div class="pred-dl">Staff Needed 24h</div>
+            </div>
+            <div class="pred-d">
+              <div class="pred-dv" id="pc">—</div>
+              <div class="pred-dl">Confidence</div>
+            </div>
+            <div class="pred-d">
+              <div class="pred-dv" id="pr">—</div>
+              <div class="pred-dl">Risk Level</div>
+            </div>
+            <div class="pred-d">
+              <div class="pred-dv" id="pu">—</div>
+              <div class="pred-dl">Bed Utilization</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Current Alerts ── -->
+  <div class="card">
+    <div class="card-h"><span class="card-t">📊 Predictive Alerts</span></div>
+    <div class="card-b np">
+      {% for a in alerts %}
+      <div class="al">
+        <span class="al-dot {{ 'cr' if a.severity=='CRITICAL' else 'wr' if a.severity=='WARNING' else 'inf' if a.severity=='INFO' else 'nr' }}"></span>
+        <div class="al-c">
+          <div class="al-msg">{{ a.message }}</div>
+          <div class="al-meta">{{ a.severity }}{% if a.type %} · {{ a.type }}{% endif %}</div>
+        </div>
+      </div>
+      {% else %}
+      <div class="empty"><div class="ei">✅</div><h3>All resources optimal</h3></div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- ── 24h Forecast Chart ── -->
+<div class="card">
+  <div class="card-h">
+    <span class="card-t">📈 24-Hour Rolling Forecast</span>
+    <span class="badge badge-i">from current hour</span>
+  </div>
+  <div class="card-b">
+    <div class="chart-wrap-lg">
+      <canvas id="forecastChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ── Bed vs Staff forecast ── -->
+<div class="charts-row">
+  <div class="card">
+    <div class="card-h"><span class="card-t">🛏️ Bed Demand Forecast (24h)</span></div>
+    <div class="card-b"><div class="chart-wrap"><canvas id="bedsChart"></canvas></div></div>
+  </div>
+  <div class="card">
+    <div class="card-h"><span class="card-t">👩‍⚕️ Staff Demand Forecast (24h)</span></div>
+    <div class="card-b"><div class="chart-wrap"><canvas id="staffChart"></canvas></div></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const fLabels  = {{ forecast_labels | tojson }};
+  const fPts     = {{ forecast_patients | tojson }};
+  const fBeds    = {{ forecast_beds | tojson }};
+  const fStaff   = {{ forecast_staff | tojson }};
+
+  initCompare('forecastChart', fLabels, [
+    { label: 'Patients (next hr)', data: fPts },
+    { label: 'Beds Needed',        data: fBeds },
+    { label: 'Staff Required',     data: fStaff },
+  ]);
+  initLine('bedsChart',  fLabels, fBeds,  'purple', 'Beds Needed');
+  initLine('staffChart', fLabels, fStaff, 'green',  'Staff Required');
+</script>
+{% endblock %}

@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block header %}Settings & Data{% endblock %}
+
+{% block content %}
+<div class="charts-row">
+  <!-- ── Add Operational Data ── -->
+  <div class="card">
+    <div class="card-h"><span class="card-t">➕ Add Operational Snapshot</span></div>
+    <div class="card-b">
+      <form method="POST" action="/settings">
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Hour (0–23)</label>
+            <input type="number" name="hour" class="fc" value="12" min="0" max="23">
+          </div>
+          <div class="fg">
+            <label class="fl">Patients Count</label>
+            <input type="number" name="patients" class="fc" value="50" min="0">
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Beds Available</label>
+            <input type="number" name="beds" class="fc" value="20" min="0">
+          </div>
+          <div class="fg">
+            <label class="fl">Staff on Duty</label>
+            <input type="number" name="staff_count" class="fc" value="15" min="0">
+          </div>
+        </div>
+        <div class="fg">
+          <label class="fl">Theme</label>
+          <select name="theme" class="fc">
+            <option value="dark" {% if theme=='dark' %}selected{% endif %}>Dark</option>
+            <option value="light" {% if theme=='light' %}selected{% endif %}>Light</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-p btn-full">💾 Save Snapshot</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── Departments ── -->
+  <div class="card">
+    <div class="card-h">
+      <span class="card-t">🏥 Departments</span>
+      <span class="badge badge-p">{{ depts | length }}</span>
+    </div>
+    <div class="card-b np">
+      <table class="dt">
+        <thead>
+          <tr>
+            <th>Icon</th>
+            <th>Name</th>
+            <th>Floor</th>
+            <th>Total Beds</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in depts %}
+          <tr>
+            <td>{{ d.icon }}</td>
+            <td style="font-weight:600">{{ d.name }}</td>
+            <td>{{ d.floor }}</td>
+            <td>{{ d.total_beds }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── Staff Roster ── -->
+<div class="card">
+  <div class="card-h">
+    <span class="card-t">👨‍⚕️ Staff Roster</span>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span class="badge badge-p">{{ staff | length }} staff</span>
+      <button class="btn btn-sm btn-p" onclick="openModal('addStaffModal')">+ Add Staff</button>
+    </div>
+  </div>
+  <div class="card-b np">
+    <table class="dt">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Role</th>
+          <th>Department</th>
+          <th>Shift</th>
+          <th>Status</th>
+          <th>Contact</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in staff %}
+        <tr>
+          <td style="font-weight:600">{{ s.name }}</td>
+          <td>{{ s.role }}</td>
+          <td>{{ s.department_name or '—' }}</td>
+          <td>{{ s.shift }}</td>
+          <td>
+            <span class="badge badge-{{ 's' if s.status=='On Duty' else 'w' if s.status=='Off Duty' else 'n' }}">
+              {{ s.status }}
+            </span>
+          </td>
+          <td style="font-size:11px;color:var(--text3)">{{ s.email }}</td>
+          <td onclick="event.stopPropagation()">
+            <div style="display:flex;gap:4px">
+              <button class="btn btn-sm btn-s" onclick="openEditStaff({{ s.id }}, '{{ s.name }}', '{{ s.role }}', {{ s.department_id or 1 }}, '{{ s.shift }}', '{{ s.status }}', '{{ s.phone or '' }}', '{{ s.email or '' }}')">✏️</button>
+              <form action="/settings/staff/{{ s.id }}/delete" method="POST" style="margin:0" onsubmit="return confirm('Remove {{ s.name }}?')">
+                <button type="submit" class="btn btn-sm btn-d">🗑️</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Add Staff Modal ── -->
+<div class="modal-bg" id="addStaffModal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-h">
+      <h3>👨‍⚕️ Add Staff Member</h3>
+      <button class="modal-x" onclick="closeModal('addStaffModal')">&times;</button>
+    </div>
+    <form action="/settings/staff/add" method="POST" style="display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0">
+      <div class="modal-bd">
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Full Name</label>
+            <input type="text" name="name" class="fc" required placeholder="Dr. John Smith">
+          </div>
+          <div class="fg">
+            <label class="fl">Role</label>
+            <select name="role" class="fc">
+              <option>Doctor</option>
+              <option>Nurse</option>
+              <option>Surgeon</option>
+              <option>Technician</option>
+              <option>Specialist</option>
+            </select>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Department</label>
+            <select name="department_id" class="fc">
+              {% for d in depts %}
+              <option value="{{ d.id }}">{{ d.icon }} {{ d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Shift</label>
+            <select name="shift" class="fc">
+              <option>Day</option>
+              <option>Night</option>
+              <option>Evening</option>
+            </select>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Status</label>
+            <select name="status" class="fc">
+              <option>On Duty</option>
+              <option>Off Duty</option>
+              <option>On Leave</option>
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Phone</label>
+            <input type="text" name="phone" class="fc" placeholder="+91-9800000000">
+          </div>
+        </div>
+        <div class="fg">
+          <label class="fl">Email</label>
+          <input type="email" name="email" class="fc" placeholder="name@medbyte.org">
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button type="button" class="btn btn-s" onclick="closeModal('addStaffModal')">Cancel</button>
+        <button type="submit" class="btn btn-p">✔ Add Staff</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Edit Staff Modal ── -->
+<div class="modal-bg" id="editStaffModal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-h">
+      <h3>✏️ Edit Staff Member</h3>
+      <button class="modal-x" onclick="closeModal('editStaffModal')">&times;</button>
+    </div>
+    <form id="editStaffForm" method="POST" style="display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0">
+      <div class="modal-bd">
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Full Name</label>
+            <input type="text" name="name" id="es_name" class="fc" required>
+          </div>
+          <div class="fg">
+            <label class="fl">Role</label>
+            <select name="role" id="es_role" class="fc">
+              <option>Doctor</option>
+              <option>Nurse</option>
+              <option>Surgeon</option>
+              <option>Technician</option>
+              <option>Specialist</option>
+            </select>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Department</label>
+            <select name="department_id" id="es_dept" class="fc">
+              {% for d in depts %}
+              <option value="{{ d.id }}">{{ d.icon }} {{ d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Shift</label>
+            <select name="shift" id="es_shift" class="fc">
+              <option>Day</option>
+              <option>Night</option>
+              <option>Evening</option>
+            </select>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Status</label>
+            <select name="status" id="es_status" class="fc">
+              <option>On Duty</option>
+              <option>Off Duty</option>
+              <option>On Leave</option>
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Phone</label>
+            <input type="text" name="phone" id="es_phone" class="fc">
+          </div>
+        </div>
+        <div class="fg">
+          <label class="fl">Email</label>
+          <input type="email" name="email" id="es_email" class="fc">
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button type="button" class="btn btn-s" onclick="closeModal('editStaffModal')">Cancel</button>
+        <button type="submit" class="btn btn-p">✔ Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openEditStaff(id, name, role, deptId, shift, status, phone, email) {
+  document.getElementById('editStaffForm').action = '/settings/staff/' + id + '/update';
+  document.getElementById('es_name').value = name;
+  document.getElementById('es_role').value = role;
+  document.getElementById('es_dept').value = deptId;
+  document.getElementById('es_shift').value = shift;
+  document.getElementById('es_status').value = status;
+  document.getElementById('es_phone').value = phone;
+  document.getElementById('es_email').value = email;
+  openModal('editStaffModal');
+}
+</script>
+{% endblock %}

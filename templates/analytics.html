@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}Analytics{% endblock %}
+{% block header %}Analytics & Reports{% endblock %}
+
+{% block content %}
+<!-- ── Summary Cards ── -->
+<div class="metrics">
+  <div class="m-card blue">
+    <div class="m-top"><span class="m-label">Avg Daily Admissions</span><span class="m-icon">📥</span></div>
+    <div class="m-val">{{ avg_daily_admissions }}</div>
+    <div class="m-sub">last 7 days</div>
+  </div>
+  <div class="m-card green">
+    <div class="m-top"><span class="m-label">Avg Bed Utilization</span><span class="m-icon">🛏️</span></div>
+    <div class="m-val">{{ avg_bed_util }}%</div>
+    <div class="m-sub {{ 'bad' if avg_bed_util|float > 80 else 'good' }}">hospital average</div>
+  </div>
+  <div class="m-card purple">
+    <div class="m-top"><span class="m-label">Peak Hour</span><span class="m-icon">⏰</span></div>
+    <div class="m-val">{{ peak_hour }}:00</div>
+    <div class="m-sub">highest demand</div>
+  </div>
+  <div class="m-card orange">
+    <div class="m-top"><span class="m-label">Staff Efficiency</span><span class="m-icon">👩‍⚕️</span></div>
+    <div class="m-val">{{ staff_efficiency }}%</div>
+    <div class="m-sub">utilization index</div>
+  </div>
+</div>
+
+<!-- ── Weekly Trends & Dept Breakdown ── -->
+<div class="analytics-grid">
+  <div class="card">
+    <div class="card-h">
+      <span class="card-t">📅 Weekly Patient Forecast (Mon–Sun)</span>
+      <span class="badge badge-p">AI Model</span>
+    </div>
+    <div class="card-b">
+      <div class="chart-wrap-lg">
+        <canvas id="weeklyChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-h"><span class="card-t">🏥 Department Bed Utilization</span></div>
+    <div class="card-b np">
+      {% for d in dept_util %}
+      <div style="padding:12px 16px; border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <span style="font-size:13px;font-weight:600">{{ d.icon }} {{ d.name }}</span>
+          <span style="font-size:12px;color:{{ 'var(--red)' if d.pct > 85 else 'var(--yellow)' if d.pct > 65 else 'var(--green)' }}">
+            {{ d.pct }}%
+          </span>
+        </div>
+        <div class="prog-track">
+          <div class="prog-fill {{ 'r' if d.pct > 85 else 'o' if d.pct > 65 else 'g' }}" style="width:{{ d.pct }}%"></div>
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px">{{ d.occupied }}/{{ d.total }} beds occupied</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- ── Hourly Heatmap & Resource Health ── -->
+<div class="charts-row">
+  <div class="card">
+    <div class="card-h">
+      <span class="card-t">🕐 Hourly Demand Forecast</span>
+      <span class="badge badge-i">beds vs staff</span>
+    </div>
+    <div class="card-b">
+      <div class="chart-wrap-lg">
+        <canvas id="hourlyBar"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-h"><span class="card-t">📦 Resource Health Summary</span></div>
+    <div class="card-b np">
+      {% for r in resource_health %}
+      <div class="al">
+        <span class="al-dot {{ 'cr' if r.status=='critical' else 'wr' if r.status=='warning' else 'nr' }}"></span>
+        <div class="al-c">
+          <div class="al-msg">{{ r.name }}</div>
+          <div class="al-meta">{{ r.available }}/{{ r.total }} available · {{ r.util }}% utilized</div>
+        </div>
+        <span class="badge badge-{{ 'd' if r.status=='critical' else 'w' if r.status=='warning' else 's' }}">
+          {{ r.status | upper }}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- ── Staff by Role ── -->
+<div class="card">
+  <div class="card-h">
+    <span class="card-t">👨‍⚕️ Staff Roster by Role</span>
+    <a href="/settings" class="btn btn-sm btn-s">Manage Staff</a>
+  </div>
+  <div class="card-b np">
+    <table class="dt">
+      <thead>
+        <tr><th>Role</th><th>Total</th><th>On Duty</th><th>Utilization</th></tr>
+      </thead>
+      <tbody>
+        {% for s in staff_summary %}
+        <tr>
+          <td style="font-weight:600">{{ s.role }}</td>
+          <td>{{ s.count }}</td>
+          <td>{{ s.on_duty }}</td>
+          <td>
+            {% set pct = ((s.on_duty / s.count) * 100) | round(0) | int if s.count > 0 else 0 %}
+            <div class="prog-track" style="width:120px;display:inline-block">
+              <div class="prog-fill {{ 'r' if pct > 90 else 'o' if pct > 70 else 'g' }}" style="width:{{ pct }}%"></div>
+            </div>
+            <span style="font-size:11px;margin-left:8px">{{ pct }}%</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Weekly forecast bar chart
+  const weekDays  = {{ weekly_days | tojson }};
+  const weekPts   = {{ weekly_patients | tojson }};
+  initBar('weeklyChart', weekDays, [{ label: 'Predicted Daily Admissions', data: weekPts }]);
+
+  // Hourly bar (beds vs staff demand)
+  const hLabels = {{ hourly_labels | tojson }};
+  const hBeds   = {{ hourly_beds | tojson }};
+  const hStaff  = {{ hourly_staff | tojson }};
+  initBar('hourlyBar', hLabels, [
+    { label: 'Beds Needed', data: hBeds },
+    { label: 'Staff Needed', data: hStaff },
+  ]);
+</script>
+{% endblock %}
