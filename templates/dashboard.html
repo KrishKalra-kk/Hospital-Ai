@@ -39,7 +39,7 @@
   </div>
 </div>
 
-<!-- ── Charts Row ── -->
+<!-- ── Charts Row 1: Forecast + Bed Breakdown ── -->
 <div class="charts-row">
   <div class="card">
     <div class="card-h">
@@ -53,7 +53,32 @@
     </div>
   </div>
   <div class="card">
-    <div class="card-h"><span class="card-t">🍩 Resource Usage</span></div>
+    <div class="card-h">
+      <span class="card-t">🛏️ Bed Utilization by Type</span>
+      <span class="badge badge-i">{{ bt }} total</span>
+    </div>
+    <div class="card-b">
+      <div class="chart-wrap">
+        <canvas id="bedPieChart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Charts Row 2: Resource Usage + Bed Availability Bar ── -->
+<div class="charts-row">
+  <div class="card">
+    <div class="card-h">
+      <span class="card-t">📊 Bed Availability (Occupied vs Free)</span>
+    </div>
+    <div class="card-b">
+      <div class="chart-wrap">
+        <canvas id="bedBarChart"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-h"><span class="card-t">🍩 Equipment Usage</span></div>
     <div class="card-b">
       <div class="chart-wrap">
         <canvas id="donutChart"></canvas>
@@ -66,13 +91,13 @@
 <div class="charts-row">
   <div class="card">
     <div class="card-h">
-      <span class="card-t">🚨 Recent Alerts</span>
-      <a href="/alerts" class="btn btn-sm btn-s">View All</a>
+      <span class="card-t">🚨 Live System Alerts</span>
+      <a href="/alerts" class="btn btn-sm btn-s">View All →</a>
     </div>
     <div class="card-b np">
       {% if alerts %}
         {% for a in alerts[:5] %}
-        <div class="al {{ 'acked' if a.acknowledged }}">
+        <div class="al">
           <span class="al-dot {{ 'cr' if a.severity=='CRITICAL' else 'wr' if a.severity=='WARNING' else 'inf' if a.severity=='INFO' else 'nr' }}"></span>
           <div class="al-c">
             <div class="al-msg">{{ a.message }}</div>
@@ -118,5 +143,16 @@
     { label: 'Beds Needed',        data: forecastBeds },
   ]);
   initDonut('donutChart', {{ rl | tojson }}, {{ rd | tojson }});
+
+  // Bed utilization pie chart
+  const bedLabels = {{ bed_type_labels | tojson }};
+  const bedOcc = {{ bed_type_occ | tojson }};
+  initPie('bedPieChart', bedLabels, bedOcc);
+
+  // Bed availability bar chart (occupied vs free)
+  initBar('bedBarChart', bedLabels, [
+    { label: 'Occupied', data: bedOcc },
+    { label: 'Available', data: {{ bed_type_avail | tojson }} },
+  ]);
 </script>
 {% endblock %}

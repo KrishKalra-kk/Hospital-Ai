@@ -112,14 +112,21 @@ def dashboard():
     rl = [s['category'] for s in res_summary] + [s['equipment_type'] for s in ls_summary]
     rd = [s['in_use'] for s in res_summary] + [s['in_use'] for s in ls_summary]
 
+    # Live alerts
+    from database import generate_real_alerts
+    live_alerts = generate_real_alerts()[:5]
+
     return render_template('dashboard.html',
         page='dashboard', pa=_pa(),
-        pc=pc, ba=beds_avail, bu=bed_util, sod=sod, ts=ts,
-        pred=pred, alerts=get_alerts()[:5], recs=recs,
+        pc=pc, ba=beds_avail, bt=beds_total, bu=bed_util, sod=sod, ts=ts,
+        pred=pred, alerts=live_alerts, recs=recs,
         forecast_labels=[f['label'] for f in forecast],
         forecast_patients=[f['patients'] for f in forecast],
         forecast_beds=[f['beds_needed'] for f in forecast],
         rl=rl, rd=rd,
+        bed_type_labels=[s['bed_type'] for s in bed_summ],
+        bed_type_occ=[s['total'] - s['available'] for s in bed_summ],
+        bed_type_avail=[s['available'] for s in bed_summ],
     )
 
 
