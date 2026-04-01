@@ -1108,6 +1108,22 @@ def get_patients(status_filter=None):
     return [dict(r) for r in rows]
 
 
+def get_icu_transfer_candidates():
+    """Find patients in ICU whose condition is Moderate or Stable who have been admitted for > 12 hours."""
+    conn = get_conn()
+    candidates = conn.execute("""
+        SELECT p.id, p.name, p.bed_number, p.condition, p.severity, p.admitted_at
+        FROM patients p
+        JOIN departments d ON p.department_id = d.id
+        WHERE d.name LIKE '%ICU%'
+          AND p.severity IN ('Stable', 'Moderate')
+          AND p.status = 'Admitted'
+          AND p.admitted_at <= datetime('now', '-12 hours')
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in candidates]
+
+
 def add_patient(name, age, gender, condition, severity, department_id, bed_number, notes="",
                 assigned_staff_id=None, assigned_ventilator_id=None, assigned_oxygen_id=None,
                 blood_group=None, blood_component=None, blood_units=0):

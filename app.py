@@ -113,8 +113,9 @@ def dashboard():
     rd = [s['in_use'] for s in res_summary] + [s['in_use'] for s in ls_summary]
 
     # Live alerts
-    from database import generate_real_alerts
+    from database import generate_real_alerts, get_icu_transfer_candidates
     live_alerts = generate_real_alerts()[:5]
+    icu_transfers = get_icu_transfer_candidates()
 
     return render_template('dashboard.html',
         page='dashboard', pa=_pa(),
@@ -127,6 +128,7 @@ def dashboard():
         bed_type_labels=[s['bed_type'] for s in bed_summ],
         bed_type_occ=[s['total'] - s['available'] for s in bed_summ],
         bed_type_avail=[s['available'] for s in bed_summ],
+        icu_transfers=icu_transfers,
     )
 
 
@@ -513,6 +515,9 @@ def predictions_page():
     sod        = state['staff_count']
     alerts_list, _ = generate_alert(pred, beds_avail, sod)
 
+    from database import get_icu_transfer_candidates
+    icu_transfers = get_icu_transfer_candidates()
+
     return render_template('predictions.html',
         page='predictions', pa=_pa(),
         ba=beds_avail, sa=sod, current_hour=state['hour'],
@@ -521,6 +526,7 @@ def predictions_page():
         forecast_patients=[f['patients'] for f in forecast],
         forecast_beds=[f['beds_needed'] for f in forecast],
         forecast_staff=[f['staff_needed'] for f in forecast],
+        icu_transfers=icu_transfers,
     )
 
 
