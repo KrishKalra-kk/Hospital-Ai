@@ -72,9 +72,15 @@
           <td>
             <div style="display:flex;gap:4px;">
                 {% if p.status == 'Admitted' %}
-                <form action="/patients/discharge/{{ p.id }}" method="POST" style="margin:0">
-                    <button type="submit" class="btn btn-sm btn-d">Discharge</button>
-                </form>
+                  {% if p.assigned_ventilator_code and p.assigned_ventilator_code != 'None' %}
+                  <form action="/patients/wean/{{ p.id }}" method="POST" style="margin:0" onsubmit="return confirm('Wean off ventilator for {{ p.name }}?')">
+                      <button type="submit" class="btn btn-sm btn-w" style="background:var(--yellow);color:#000;" title="Must wean off ventilator before discharge">⚠️ Wean Off</button>
+                  </form>
+                  {% else %}
+                  <form action="/patients/discharge/{{ p.id }}" method="POST" style="margin:0">
+                      <button type="submit" class="btn btn-sm btn-d">Discharge</button>
+                  </form>
+                  {% endif %}
                 {% else %}
                 <span class="badge badge-n" style="align-self:center">Done</span>
                 {% endif %}

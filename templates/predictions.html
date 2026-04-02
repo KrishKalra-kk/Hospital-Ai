@@ -11,7 +11,7 @@
       <h4 style="margin:0 0 6px 0; color:var(--accent); font-weight:600;">AI Transfer Recommendation</h4>
       <div style="margin:0; font-size:13px; color:var(--text2); line-height:1.5;">
         {% for t in icu_transfers %}
-        <div>Patient <strong style="color:var(--text)">{{ t.name }}</strong> (Bed {{ t.bed_number }}) has been admitted for >12h. Condition improved to <strong style="color:var(--green)">{{ t.severity }}</strong>. Recommend transfer from ICU to General Ward to optimize resource allocation.</div>
+        <div>Patient <strong style="color:var(--text)">{{ t.name }}</strong> (Bed {{ t.bed_number }}) has been admitted for >12h. Condition improved to <strong style="color:var(--green)">{{ t.severity }}</strong>. Recommend transfer from ICU to Step-Down Ward to optimize resource allocation.</div>
         {% endfor %}
       </div>
     </div>

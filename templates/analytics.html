@@ -8,7 +8,7 @@
   <div class="m-card blue">
     <div class="m-top"><span class="m-label">Avg Daily Admissions</span><span class="m-icon">📥</span></div>
     <div class="m-val">{{ avg_daily_admissions }}</div>
-    <div class="m-sub">last 7 days</div>
+    <div class="m-sub">monthly average</div>
   </div>
   <div class="m-card green">
     <div class="m-top"><span class="m-label">Avg Bed Utilization</span><span class="m-icon">🛏️</span></div>
@@ -27,16 +27,16 @@
   </div>
 </div>
 
-<!-- ── Weekly Trends & Dept Breakdown ── -->
+<!-- ── Monthly Trends & Dept Breakdown ── -->
 <div class="analytics-grid">
   <div class="card">
     <div class="card-h">
-      <span class="card-t">📅 Weekly Patient Forecast (Mon–Sun)</span>
+      <span class="card-t">📅 Monthly Patient Forecast (Jan–Dec)</span>
       <span class="badge badge-p">AI Model</span>
     </div>
     <div class="card-b">
       <div class="chart-wrap-lg">
-        <canvas id="weeklyChart"></canvas>
+        <canvas id="monthlyChart"></canvas>
       </div>
     </div>
   </div>
@@ -129,10 +129,10 @@
 
 {% block scripts %}
 <script>
-  // Weekly forecast bar chart
-  const weekDays  = {{ weekly_days | tojson }};
-  const weekPts   = {{ weekly_patients | tojson }};
-  initBar('weeklyChart', weekDays, [{ label: 'Predicted Daily Admissions', data: weekPts }]);
+  // Monthly forecast bar chart
+  const monthLabels = {{ monthly_labels | tojson }};
+  const monthPts    = {{ monthly_patients | tojson }};
+  initBar('monthlyChart', monthLabels, [{ label: 'Predicted Monthly Admissions', data: monthPts }]);
 
   // Hourly bar (beds vs staff demand)
   const hLabels = {{ hourly_labels | tojson }};

@@ -12,6 +12,7 @@
   <button class="tab-btn"        onclick="switchTab(this,'blood')">🩸 Blood Bank</button>
   <button class="tab-btn"        onclick="switchTab(this,'lifesupport')">🫁 Life Support</button>
   <button class="tab-btn"        onclick="switchTab(this,'rfid')">📡 RFID Tracking</button>
+  <button class="tab-btn"        onclick="switchTab(this,'equipment')">🏗️ Equipment & Services</button>
 </div>
 
 <!-- ══════════════════════════════════════════
@@ -489,37 +490,248 @@
     </div>
   </div>
   {% endfor %}
+</div>
 
-  <!-- Legacy Resource CRUD -->
-  <div class="card">
+<!-- ══════════════════════════════════════════
+     EQUIPMENT & SERVICES TAB
+════════════════════════════════════════════ -->
+<div id="tab-equipment" class="tab-content">
+
+  <!-- Category Summary Cards -->
+  <div class="metrics">
+    {% set cat_icons = {'Diagnostic Imaging':'🔬','Monitoring Equipment':'📟','Surgical':'🔪','Emergency & Transport':'🚑','Laboratory':'🧪','Consumables':'🧤','Infrastructure':'🏭','Scheduling':'📅'} %}
+    {% set cat_colors = {'Diagnostic Imaging':'purple','Monitoring Equipment':'cyan','Surgical':'red','Emergency & Transport':'orange','Laboratory':'green','Consumables':'blue','Infrastructure':'purple','Scheduling':'orange'} %}
+    {% for cs in res_cat_summary %}
+    <div class="m-card {{ cat_colors.get(cs.category, 'blue') }}">
+      <div class="m-top">
+        <span class="m-label">{{ cs.category }}</span>
+        <span class="m-icon">{{ cat_icons.get(cs.category, '📦') }}</span>
+      </div>
+      <div class="m-val">{{ cs.available }}<span style="font-size:16px;color:var(--text3)">/{{ cs.total }}</span></div>
+      <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+        {% if cs.category != 'Consumables' %}<span class="mini-stat occ">{{ cs.in_use }} In Use</span>{% endif %}
+        <span class="mini-stat avail">{{ cs.available }} Available</span>
+        {% if cs.maintenance %}<span class="mini-stat maint">{{ cs.maintenance }} Maint.</span>{% endif %}
+        {% if cs.critical_items %}<span class="mini-stat" style="background:rgba(239,68,68,0.2);color:var(--red)">{{ cs.critical_items }} Critical</span>{% endif %}
+      </div>
+      {% if cs.category != 'Consumables' %}
+      <div class="prog-track" style="margin-top:8px">
+        <div class="prog-fill {{ 'r' if cs.utilization > 85 else 'o' if cs.utilization > 65 else 'g' }}" style="width:{{ cs.utilization }}%"></div>
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px">{{ cs.utilization }}% utilization · {{ cs.item_count }} items</div>
+      {% else %}
+      <div style="font-size:10px;color:var(--text3);margin-top:8px">📦 {{ cs.item_count }} supply items tracked</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+    <!-- Trauma summary card -->
+    <div class="m-card red">
+      <div class="m-top">
+        <span class="m-label">Trauma Bays</span>
+        <span class="m-icon">🚨</span>
+      </div>
+      <div class="m-val">{{ trauma_summ.available }}<span style="font-size:16px;color:var(--text3)">/{{ trauma_summ.total }}</span></div>
+      <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+        {% if trauma_summ.occupied %}<span class="mini-stat occ">{{ trauma_summ.occupied }} Active</span>{% endif %}
+        <span class="mini-stat avail">{{ trauma_summ.available }} Ready</span>
+        {% if trauma_summ.cleaning %}<span class="mini-stat maint">{{ trauma_summ.cleaning }} Cleaning</span>{% endif %}
+        {% if trauma_summ.maintenance %}<span class="mini-stat" style="background:rgba(239,68,68,0.2);color:var(--red)">{{ trauma_summ.maintenance }} Down</span>{% endif %}
+      </div>
+      <div class="prog-track" style="margin-top:8px">
+        {% set t_util = ((trauma_summ.occupied / trauma_summ.total) * 100)|round(0)|int if trauma_summ.total > 0 else 0 %}
+        <div class="prog-fill {{ 'r' if t_util > 85 else 'o' if t_util > 50 else 'g' }}" style="width:{{ t_util }}%"></div>
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px">{{ t_util }}% occupied · {{ trauma_summ.total }} bays</div>
+    </div>
+  </div>
+
+  <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
+    <button class="btn btn-p" onclick="openAddEquipModal()">➕ Add Equipment</button>
+  </div>
+
+  <!-- ═══════ TRAUMA UNIT MANAGEMENT ═══════ -->
+  <div class="card" style="margin-bottom:20px">
     <div class="card-h">
-      <span class="card-t">🗂️ Legacy Resource Records</span>
-      <button class="btn btn-sm btn-p" onclick="document.getElementById('resourcesModal').classList.add('show')">+ Add Resource</button>
+      <span class="card-t">🚨 Trauma Unit Management</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="badge badge-d">{{ trauma_summ.occupied }} active</span>
+        <span class="badge badge-s">{{ trauma_summ.available }} ready</span>
+        <button class="btn btn-sm btn-p" onclick="openModal('addTraumaModal')">+ Add Bay</button>
+      </div>
+    </div>
+    <div class="card-b" style="padding:16px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
+        {% for bay in trauma_bays %}
+        {% set st_color = 'var(--red)' if bay.status=='Occupied' else 'var(--green)' if bay.status=='Available' else 'var(--yellow)' if bay.status=='Cleaning' else 'var(--text3)' %}
+        <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative;
+            {{ 'border-left:3px solid var(--red)' if bay.status=='Occupied' else 'border-left:3px solid var(--green)' if bay.status=='Available' else 'border-left:3px solid var(--yellow)' if bay.status=='Cleaning' else 'border-left:3px solid var(--text3)' }}">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div>
+              <strong style="font-size:15px">{{ bay.bay_name }}</strong>
+              <span class="badge badge-p" style="margin-left:6px; background:var(--bg-secondary); color:var(--text)">{{ bay.level }}</span>
+            </div>
+            <span style="font-weight:700;color:{{ st_color }};font-size:13px">{{ bay.status|upper }}</span>
+          </div>
+          {% if bay.status == 'Occupied' %}
+          <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:10px;margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <div style="font-size:10px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:1px">🔴 Active Case</div>
+                {% set triage_color = 'var(--red)' if bay.triage_class == 'Level 1 (Resuscitation)' else 'var(--orange)' if bay.triage_class == 'Level 2 (Emergent)' else 'var(--yellow)' %}
+                <span class="badge" style="background:transparent; border:1px solid {{ triage_color }}; color:{{ triage_color }}; font-size:10px">{{ bay.triage_class }}</span>
+            </div>
+            <div style="font-weight:600;font-size:13px;margin-bottom:8px">{{ bay.current_case or '—' }}</div>
+            
+            <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:10px;margin-bottom:6px">
+                <span style="background:rgba(255,255,255,0.05);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">🩸 {{ bay.blood_ready }}</span>
+                <span style="background:rgba(255,255,255,0.05);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">🩻 {{ bay.imaging_status }}</span>
+            </div>
+            {% if bay.activated_at %}
+                <div style="font-size:11px;color:var(--text3);display:flex;justify-content:space-between">
+                    <span>⏱️ Activated: {{ bay.activated_at[11:16] }}</span>
+                    <span style="color:var(--orange)">🕒 Golden Hour Timer Active</span>
+                </div>
+            {% endif %}
+          </div>
+          {% endif %}
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;margin-bottom:10px">
+            <div><span style="color:var(--text3)">👩‍⚕️ Nurse:</span> <strong>{{ bay.nurse_assigned or '—' }}</strong></div>
+            <div><span style="color:var(--text3)">👨‍⚕️ Doctor:</span> <strong>{{ bay.doctor_assigned or '—' }}</strong></div>
+            <div><span style="color:var(--text3)">🔧 Equip:</span> {% if bay.equipment_ready %}<span style="color:var(--green);font-weight:700">✅ Ready</span>{% else %}<span style="color:var(--red);font-weight:700">❌ Not Ready</span>{% endif %}</div>
+            {% if bay.notes %}<div style="grid-column:1/-1"><span style="color:var(--text3)">📝</span> {{ bay.notes }}</div>{% endif %}
+          </div>
+          
+          <form action="/resources/trauma/{{ bay.id }}/update" method="POST" style="margin:0;background:var(--bg-secondary);padding:10px;border-radius:8px;border:1px solid var(--border);" class="ajax-form">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+              <select name="status" class="fc" style="font-size:11px;padding:3px 8px;flex:1;min-width:100px">
+                <option {{ 'selected' if bay.status=='Available' }}>Available</option>
+                <option {{ 'selected' if bay.status=='Occupied' }}>Occupied</option>
+                <option {{ 'selected' if bay.status=='Cleaning' }}>Cleaning</option>
+                <option {{ 'selected' if bay.status=='Maintenance' }}>Maintenance</option>
+              </select>
+              <input type="text" name="current_case" class="fc" style="font-size:11px;padding:3px 8px;flex:2;min-width:120px" placeholder="Case desc" value="{{ bay.current_case or '' }}">
+              <button type="submit" class="btn btn-sm btn-s" style="padding:3px 10px">Update</button>
+            </div>
+            
+            <div style="display:flex;gap:6px;margin-bottom:6px">
+              <select name="triage_class" class="fc" style="font-size:11px;padding:3px 8px;flex:1">
+                <option {{ 'selected' if bay.triage_class=='Level 1 (Resuscitation)' }}>Level 1 (Resuscitation)</option>
+                <option {{ 'selected' if bay.triage_class=='Level 2 (Emergent)' }}>Level 2 (Emergent)</option>
+                <option {{ 'selected' if bay.triage_class=='Level 3 (Urgent)' }}>Level 3 (Urgent)</option>
+              </select>
+              <select name="blood_ready" class="fc" style="font-size:11px;padding:3px 8px;flex:1">
+                <option {{ 'selected' if bay.blood_ready=='Pending Crossmatch' }}>Pending Crossmatch</option>
+                <option {{ 'selected' if bay.blood_ready=='O-Negative Ready' }}>O-Negative Ready</option>
+                <option {{ 'selected' if bay.blood_ready=='MTP Activated' }}>MTP Activated</option>
+              </select>
+            </div>
+            
+            <div style="display:flex;gap:6px;margin-bottom:6px">
+                <select name="imaging_status" class="fc" style="font-size:11px;padding:3px 8px;flex:1">
+                    <option {{ 'selected' if bay.imaging_status=='Pending' }}>Pending</option>
+                    <option {{ 'selected' if bay.imaging_status=='Portable X-Ray En Route' }}>Portable X-Ray En Route</option>
+                    <option {{ 'selected' if bay.imaging_status=='CT Clear' }}>CT Clear</option>
+                    <option {{ 'selected' if bay.imaging_status=='FAST Scan Positive' }}>FAST Scan Positive</option>
+                </select>
+            </div>
+
+            <div style="display:flex;gap:6px">
+              <input type="text" name="nurse" class="fc" style="font-size:11px;padding:3px 8px;flex:1" placeholder="Nurse" value="{{ bay.nurse_assigned or '' }}">
+              <input type="text" name="doctor" class="fc" style="font-size:11px;padding:3px 8px;flex:1" placeholder="Doctor" value="{{ bay.doctor_assigned or '' }}">
+            </div>
+          </form>
+          <form action="/resources/trauma/{{ bay.id }}/delete" method="POST" style="position:absolute;top:12px;right:12px;margin:0" onsubmit="return confirm('Delete {{ bay.bay_name }}?')" class="ajax-form">
+            <button type="submit" class="btn btn-sm btn-d" style="padding:2px 6px;font-size:10px;opacity:0.5">✕</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════ EQUIPMENT TABLES BY CATEGORY ═══════ -->
+  {% for cat, items in res_by_category.items() %}
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-h">
+      <span class="card-t">{{ cat_icons.get(cat, '📦') }} {{ cat }}</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        {% set crit_count = items|selectattr('status','eq','critical')|list|length %}
+        {% if crit_count > 0 %}<span class="badge badge-d">{{ crit_count }} critical</span>{% endif %}
+        <span class="badge badge-p">{{ items|length }} items</span>
+      </div>
     </div>
     <div class="card-b np">
       <table class="dt">
-        <thead><tr><th>Name</th><th>Category</th><th>Total</th><th>Available</th><th>In Use</th><th>Maintenance</th><th>Action</th></tr></thead>
-        <tbody>
-          {% for res in legacy_resources %}
+        <thead>
+          {% set is_full = (cat == 'Emergency & Transport' or cat == 'Scheduling') %}
+          {% set is_consumable = (cat == 'Consumables') %}
           <tr>
-            <td>{{ res.name }}</td>
-            <td>{{ res.category }}</td>
+            <th>Name</th>
+            <th>Location</th>
+            {% if is_full %}<th>Dept</th>{% endif %}
+            <th>Total Stock</th>
+            {% if is_full %}<th>Available</th>{% endif %}
+            {% if is_full %}<th>In Use</th>{% endif %}
+            {% if not is_consumable %}<th>Maintenance</th>{% endif %}
+            {% if is_full %}<th>Utilization</th>{% endif %}
+            <th>Status</th>
+            <th style="text-align:center">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for res in items %}
+          {% set util_pct = ((res.in_use / res.total) * 100)|round(0)|int if res.total > 0 and is_full else 0 %}
+          {% set stock_pct = ((res.available / res.total) * 100)|round(0)|int if res.total > 0 else 0 %}
+          <tr>
+            <td style="font-weight:600">{{ res.name }}</td>
+            <td style="font-size:12px;color:var(--text3)">📍 {{ res.location or '—' }}</td>
+            {% if is_full %}<td>{{ res.department_name or '—' }}</td>{% endif %}
             <td>{{ res.total }}</td>
-            <td>{{ res.available }}</td>
-            <td>{{ res.in_use }}</td>
-            <td>{{ res.maintenance }}</td>
+            {% if is_full %}
             <td>
-              <form action="/resources/update" method="POST" style="display:inline-block;margin-right:4px">
-                <input type="hidden" name="resource_id" value="{{ res.id }}">
-                <input type="number" name="available" value="{{ res.available }}" min="0" style="width:60px">
-                <input type="number" name="in_use" value="{{ res.in_use }}" min="0" style="width:60px">
-                <input type="number" name="maintenance" value="{{ res.maintenance }}" min="0" style="width:60px">
-                <button type="submit" class="btn btn-sm btn-s">Update</button>
-              </form>
-              <form action="/resources/delete" method="POST" style="display:inline-block;margin:0" onsubmit="return confirm('Delete resource?')">
-                <input type="hidden" name="resource_id" value="{{ res.id }}">
-                <button type="submit" class="btn btn-sm btn-d">Delete</button>
-              </form>
+              {% if is_consumable %}
+              <strong style="color:{{ 'var(--red)' if stock_pct < 20 else 'var(--yellow)' if stock_pct < 50 else 'var(--green)' }}">
+                {{ res.available }}
+              </strong>
+              <span style="font-size:10px;color:var(--text3);margin-left:4px">({{ stock_pct }}%)</span>
+              {% else %}
+              <strong style="color:{{ 'var(--red)' if res.available == 0 else 'var(--yellow)' if res.available < 3 else 'var(--green)' }}">
+                {{ res.available }}
+              </strong>
+              {% endif %}
+            </td>
+            {% endif %}
+            {% if is_full %}<td>{{ res.in_use }}</td>{% endif %}
+            {% if not is_consumable %}<td>{{ res.maintenance }}</td>{% endif %}
+            {% if is_full %}
+            <td>
+              <div class="prog-track" style="width:80px;display:inline-block">
+                <div class="prog-fill {{ 'r' if util_pct > 85 else 'o' if util_pct > 65 else 'g' }}" style="width:{{ util_pct }}%"></div>
+              </div>
+              <span style="font-size:11px;margin-left:6px">{{ util_pct }}%</span>
+            </td>
+            {% endif %}
+            <td>
+              <span class="badge badge-{{ 'd' if res.status=='critical' else 'w' if res.status=='warning' else 's' }}">
+                {{ res.status|upper }}
+              </span>
+            </td>
+            <td>
+              <div style="display:flex;gap:4px;justify-content:center">
+                {% if not is_consumable %}
+                  <form action="/resources/{{ res.id }}/toggle_maint" method="POST" style="margin:0" title="Send 1 unit to maintenance" class="ajax-form">
+                    <input type="hidden" name="action" value="to_maint">
+                    <button type="submit" class="btn btn-sm btn-w" style="padding:3px 8px;font-size:11px;min-width:32px" {{ 'disabled' if res.available == 0 else '' }}>🔧→</button>
+                  </form>
+                  <form action="/resources/{{ res.id }}/toggle_maint" method="POST" style="margin:0" title="Restore 1 unit from maintenance" class="ajax-form">
+                    <input type="hidden" name="action" value="from_maint">
+                    <button type="submit" class="btn btn-sm btn-s" style="padding:3px 8px;font-size:11px;min-width:32px" {{ 'disabled' if res.maintenance == 0 else '' }}>←✅</button>
+                  </form>
+                {% endif %}
+                <button class="btn btn-sm btn-s" style="padding:3px 8px" onclick="openEditEquipModal({{ res.id }}, '{{ res.name }}', '{{ res.category }}', {{ res.department_id or 'null' }}, {{ res.total }}, {{ res.available }}, {{ res.in_use }}, {{ res.maintenance }}, '{{ res.location or '' }}')">✏️</button>
+                <form action="/resources/{{ res.id }}/delete" method="POST" style="margin:0" onsubmit="return confirm('Delete {{ res.name }}?')" class="ajax-form">
+                  <button type="submit" class="btn btn-sm btn-d" style="padding:3px 8px">🗑️</button>
+                </form>
+              </div>
             </td>
           </tr>
           {% endfor %}
@@ -527,27 +739,7 @@
       </table>
     </div>
   </div>
-
-  <div class="modal-bg" id="resourcesModal">
-    <div class="modal" style="max-width:500px">
-      <div class="modal-h">
-        <h3>➕ Add Resource</h3>
-        <button class="modal-x" onclick="document.getElementById('resourcesModal').classList.remove('show')">&times;</button>
-      </div>
-      <div class="modal-bd">
-        <form action="/resources/add" method="POST">
-          <div class="fg"><label>Name</label><input name="name" class="input" required></div>
-          <div class="fg"><label>Category</label><input name="category" class="input" required></div>
-          <div class="fg"><label>Total</label><input name="total" type="number" class="input" value="0" min="0"></div>
-          <div class="fg"><label>Available</label><input name="available" type="number" class="input" value="0" min="0"></div>
-          <div class="fg"><label>In Use</label><input name="in_use" type="number" class="input" value="0" min="0"></div>
-          <div class="fg"><label>Maintenance</label><input name="maintenance" type="number" class="input" value="0" min="0"></div>
-          <div style="margin-top:12px;text-align:right"><button type="submit" class="btn btn-p">Add Resource</button></div>
-        </form>
-      </div>
-    </div>
-  </div>
-
+  {% endfor %}
 </div>
 
 <!-- ══════════════════════════════════════════
@@ -768,6 +960,131 @@
   </div>
 </div>
 
+<!-- ADD EQUIPMENT MODAL -->
+<div class="modal-bg" id="addEquipModal">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-h">
+      <h3>➕ Add Equipment / Service</h3>
+      <button class="modal-x" onclick="closeModal('addEquipModal')">&times;</button>
+    </div>
+    <form action="/resources/add" method="POST" style="display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0">
+      <div class="modal-bd">
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Name</label>
+            <input type="text" name="name" class="fc" required placeholder="e.g. ECG Machine">
+          </div>
+          <div class="fg">
+            <label class="fl">Category</label>
+            <select name="category" class="fc" required>
+              <option value="">Select Category</option>
+              <option>Diagnostic Imaging</option>
+              <option>Monitoring Equipment</option>
+              <option>Surgical</option>
+              <option>Emergency & Transport</option>
+              <option>Laboratory</option>
+              <option>Consumables</option>
+              <option>Infrastructure</option>
+              <option>Scheduling</option>
+            </select>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Department</label>
+            <select name="department_id" class="fc">
+              <option value="">— None —</option>
+              {% for d in depts %}
+              <option value="{{ d.id }}">{{ d.icon }} {{ d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Location</label>
+            <input type="text" name="location" class="fc" placeholder="e.g. Radiology Wing">
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg"><label class="fl">Total</label><input type="number" name="total" class="fc" value="0" min="0"></div>
+          <div class="fg"><label class="fl">Available</label><input type="number" name="available" class="fc" value="0" min="0"></div>
+          <div class="fg"><label class="fl">In Use</label><input type="number" name="in_use" class="fc" value="0" min="0"></div>
+          <div class="fg"><label class="fl">Maintenance</label><input type="number" name="maintenance" class="fc" value="0" min="0"></div>
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button type="button" class="btn btn-s" onclick="closeModal('addEquipModal')">Cancel</button>
+        <button type="submit" class="btn btn-p">✔ Add Equipment</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- EDIT EQUIPMENT MODAL -->
+<div class="modal-bg" id="editEquipModal">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-h">
+      <h3 id="editEquipTitle">✏️ Edit Equipment</h3>
+      <button class="modal-x" onclick="closeModal('editEquipModal')">&times;</button>
+    </div>
+    <form id="editEquipForm" method="POST" style="display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0">
+      <div class="modal-bd">
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Name</label>
+            <input type="text" name="name" id="eq_name" class="fc" required>
+          </div>
+          <div class="fg">
+            <label class="fl">Category</label>
+            <select name="category" id="eq_cat" class="fc" required>
+              <option>Diagnostic Imaging</option>
+              <option>Monitoring Equipment</option>
+              <option>Surgical</option>
+              <option>Emergency & Transport</option>
+              <option>Laboratory</option>
+              <option>Consumables</option>
+              <option>Infrastructure</option>
+              <option>Scheduling</option>
+            </select>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label class="fl">Department</label>
+            <select name="department_id" id="eq_dept" class="fc">
+              <option value="">— None —</option>
+              {% for d in depts %}
+              <option value="{{ d.id }}">{{ d.icon }} {{ d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Location</label>
+            <input type="text" name="location" id="eq_loc" class="fc">
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg"><label class="fl">Total</label><input type="number" name="total" id="eq_total" class="fc" min="0"></div>
+          <div class="fg"><label class="fl">Available</label><input type="number" name="available" id="eq_avail" class="fc" min="0"></div>
+          <div class="fg"><label class="fl">In Use</label><input type="number" name="in_use" id="eq_inuse" class="fc" min="0"></div>
+          <div class="fg"><label class="fl">Maintenance</label><input type="number" name="maintenance" id="eq_maint" class="fc" min="0"></div>
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button type="button" class="btn btn-s" onclick="closeModal('editEquipModal')">Cancel</button>
+        <button type="submit" class="btn btn-p">✔ Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+.prog-track { height:6px; background:var(--border); border-radius:3px; overflow:hidden; }
+.prog-fill { height:100%; border-radius:3px; transition:width 0.4s ease; }
+.prog-fill.g { background:var(--green); }
+.prog-fill.o { background:var(--yellow); }
+.prog-fill.r { background:var(--red); }
+</style>
+
 {% endblock %}
 
 {% block scripts %}
@@ -911,5 +1228,82 @@ function openRfidDetail(assetCode) {
       document.getElementById('rfidModalBody').innerHTML = html;
     });
 }
+
+// ── Equipment modal helpers ──
+function openAddEquipModal() {
+    openModal('addEquipModal');
+}
+function openEditEquipModal(id, name, cat, deptId, total, avail, inUse, maint, loc) {
+    document.getElementById('editEquipTitle').textContent = '✏️ Edit: ' + name;
+    document.getElementById('editEquipForm').action = '/resources/' + id + '/edit';
+    document.getElementById('eq_name').value = name;
+    document.getElementById('eq_cat').value = cat;
+    document.getElementById('eq_dept').value = deptId || '';
+    document.getElementById('eq_total').value = total;
+    document.getElementById('eq_avail').value = avail;
+    document.getElementById('eq_inuse').value = inUse;
+    document.getElementById('eq_maint').value = maint;
+    document.getElementById('eq_loc').value = loc || '';
+    openModal('editEquipModal');
+}
+
+// Intercept ajax forms inside equipment and trauma manager to prevent reloads
+document.addEventListener('DOMContentLoaded', () => {
+  const container = document.body;
+  
+  container.addEventListener('submit', function(e) {
+    if (e.target && e.target.matches('.ajax-form')) {
+      e.preventDefault();
+      
+      const form = e.target;
+      const formData = new FormData(form);
+      
+      // Keep button width stable during loading
+      const submitBtn = form.querySelector('button[type="submit"]');
+      let oldHtml = '';
+      if (submitBtn) {
+        oldHtml = submitBtn.innerHTML;
+        submitBtn.innerHTML = '⏳';
+        submitBtn.disabled = true;
+      }
+      
+      fetch(form.getAttribute('action') || window.location.href, {
+        method: form.getAttribute('method') || 'POST',
+        body: formData,
+        redirect: 'follow'
+      })
+      .then(response => {
+        if (!response.ok) throw new Error('Submission failed');
+        return response.text();
+      })
+      .then(html => {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        // Extract the target area and replace
+        const newTab = doc.getElementById('tab-equipment');
+        const oldTab = document.getElementById('tab-equipment');
+        if (newTab && oldTab) {
+          oldTab.innerHTML = newTab.innerHTML;
+        }
+        
+        // Hide modals if any were open
+        const activeModal = document.querySelector('.modal-bg.active');
+        if (activeModal) activeModal.classList.remove('active');
+        
+      })
+      .catch(err => {
+        console.error('AJAX form error:', err);
+        alert('An error occurred during update. Full page reload required.');
+        window.location.reload();
+      })
+      .finally(() => {
+        if (submitBtn) {
+          submitBtn.innerHTML = oldHtml;
+          submitBtn.disabled = false;
+        }
+      });
+    }
+  });
+});
 </script>
 {% endblock %}

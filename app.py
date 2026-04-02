@@ -18,12 +18,17 @@ from database import (
     get_mobile_equipment, get_mobile_summary, add_mobile_equipment, update_mobile_equipment, delete_mobile_equipment,
     # Life support
     get_life_support, get_life_support_summary, add_life_support, update_life_support, delete_life_support,
-    # Legacy resources
-    get_resources, update_resource, get_resource_summary, add_resource, delete_resource,
+    # Hospital Equipment & Services
+    get_resources, get_resources_by_category, get_resource_category_summary,
+    update_resource, get_resource_summary, add_resource, edit_resource, delete_resource,
+    toggle_resource_maintenance,
+    # Trauma Bays
+    get_trauma_bays, get_trauma_summary, add_trauma_bay, update_trauma_bay, delete_trauma_bay,
     # Staff
     get_staff, get_staff_on_duty, get_staff_summary, add_staff, update_staff, delete_staff,
     # Patients
     get_patients, add_patient, discharge_patient, get_patient_counts, update_patient, delete_patient,
+    is_patient_on_ventilator, wean_off_ventilator,
     # Alerts
     get_alerts, add_alert, acknowledge_alert, get_alert_counts, generate_real_alerts,
     # Data
@@ -31,7 +36,7 @@ from database import (
 )
 from decision import generate_recommendations, generate_alert
 from ml.model import load_or_train
-from ml.predictor import get_predictions, get_24h_forecast, get_weekly_trend
+from ml.predictor import get_predictions, get_24h_forecast, get_monthly_trend
 
 app = Flask(__name__)
 app.secret_key = 'medcore-ai-hospital-2026-secret'
@@ -181,7 +186,10 @@ def resources_page():
         blood_summ=blood_summ, blood_by_group=blood_by_group,
         mobile_summ=mobile_summ, mob_by_type=mob_by_type,
         ls_summ=ls_summ, ls_by_type=ls_by_type,
-        legacy_resources=get_resources(),
+        res_by_category=get_resources_by_category(),
+        res_cat_summary=get_resource_category_summary(),
+        trauma_bays=get_trauma_bays(),
+        trauma_summ=get_trauma_summary(),
         depts=get_departments(),
     )
 
@@ -328,23 +336,38 @@ def ls_delete_route(lid):
 def resources_add():
     name = request.form.get('name', '')
     category = request.form.get('category', '')
-    department_id = request.form.get('department_id', type=int)
+    department_id = request.form.get('department_id', type=int) or None
     total = request.form.get('total', type=int, default=0)
     available = request.form.get('available', type=int, default=0)
     in_use = request.form.get('in_use', type=int, default=0)
     maintenance = request.form.get('maintenance', type=int, default=0)
+    location = request.form.get('location', '')
     if name and category:
-        add_resource(name, category, department_id, total, available, in_use, maintenance)
-        flash('Resource added.', 'success')
+        add_resource(name, category, department_id, total, available, in_use, maintenance, location)
+        flash('Equipment added.', 'success')
     return redirect(url_for('resources_page'))
 
 
-@app.route('/resources/delete', methods=['POST'])
-def resources_delete():
-    rid = request.form.get('resource_id', type=int)
-    if rid:
-        delete_resource(rid)
-        flash('Resource removed.', 'success')
+@app.route('/resources/<int:rid>/edit', methods=['POST'])
+def resources_edit(rid):
+    name = request.form.get('name', '')
+    category = request.form.get('category', '')
+    department_id = request.form.get('department_id', type=int) or None
+    total = request.form.get('total', type=int, default=0)
+    available = request.form.get('available', type=int, default=0)
+    in_use = request.form.get('in_use', type=int, default=0)
+    maintenance = request.form.get('maintenance', type=int, default=0)
+    location = request.form.get('location', '')
+    if name and category:
+        edit_resource(rid, name, category, department_id, total, available, in_use, maintenance, location)
+        flash('Equipment updated.', 'success')
+    return redirect(url_for('resources_page'))
+
+
+@app.route('/resources/<int:rid>/delete', methods=['POST'])
+def resources_delete(rid):
+    delete_resource(rid)
+    flash('Equipment removed.', 'success')
     return redirect(url_for('resources_page'))
 
 
@@ -356,7 +379,53 @@ def resources_update():
     maint  = request.form.get('maintenance', type=int, default=0)
     if rid:
         update_resource(rid, avail, in_use, maint)
-        flash('Resource updated.', 'success')
+        flash('Equipment updated.', 'success')
+    return redirect(url_for('resources_page'))
+
+
+@app.route('/resources/<int:rid>/toggle_maint', methods=['POST'])
+def resources_toggle_maint(rid):
+    action = request.form.get('action', 'to_maint')
+    toggle_resource_maintenance(rid, action)
+    flash('Maintenance status updated.', 'success')
+    return redirect(url_for('resources_page'))
+
+
+# ── Trauma Bay routes ──
+@app.route('/resources/trauma/add', methods=['POST'])
+def trauma_add():
+    name = request.form.get('bay_name', '')
+    level = request.form.get('level', 'Level II')
+    notes = request.form.get('notes', '')
+    if name:
+        success = add_trauma_bay(name, level, notes)
+        if success:
+            flash('Trauma bay added.', 'success')
+        else:
+            flash(f"Trauma bay '{name}' already exists or failed to add.", 'error')
+    return redirect(url_for('resources_page'))
+
+
+@app.route('/resources/trauma/<int:tid>/update', methods=['POST'])
+def trauma_update(tid):
+    status = request.form.get('status', 'Available')
+    case = request.form.get('current_case', '') or None
+    nurse = request.form.get('nurse', '') or None
+    doctor = request.form.get('doctor', '') or None
+    notes = request.form.get('notes', '') or None
+    triage = request.form.get('triage_class', 'Level II')
+    blood = request.form.get('blood_ready', 'Pending Crossmatch')
+    imaging = request.form.get('imaging_status', 'Pending')
+
+    update_trauma_bay(tid, status, current_case=case, nurse=nurse, doctor=doctor, notes=notes, triage=triage, blood=blood, imaging=imaging)
+    flash('Trauma bay updated.', 'success')
+    return redirect(url_for('resources_page'))
+
+
+@app.route('/resources/trauma/<int:tid>/delete', methods=['POST'])
+def trauma_delete(tid):
+    delete_trauma_bay(tid)
+    flash('Trauma bay removed.', 'success')
     return redirect(url_for('resources_page'))
 
 
@@ -446,10 +515,25 @@ def patients_add():
 
 @app.route('/patients/discharge/<int:pid>', methods=['POST'])
 def patients_discharge(pid):
-    discharge_patient(pid)
-    flash('Patient discharged.', 'success')
+    if is_patient_on_ventilator(pid):
+        flash('Cannot discharge — patient is on a ventilator. Wean off the ventilator first.', 'error')
+        if request.headers.get('X-Requested-With'):
+            return ('Cannot discharge — patient is on a ventilator', 400)
+        return redirect(url_for('patients_page'))
+    result = discharge_patient(pid)
+    if result:
+        flash('Patient discharged.', 'success')
+    else:
+        flash('Discharge failed — patient may still have active ventilator.', 'error')
     if request.headers.get('X-Requested-With'):
-        return ('', 200)
+        return ('', 200 if result else 400)
+    return redirect(url_for('patients_page'))
+
+
+@app.route('/patients/wean/<int:pid>', methods=['POST'])
+def patients_wean(pid):
+    wean_off_ventilator(pid)
+    flash('Ventilator weaned off successfully. Patient can now be discharged.', 'success')
     return redirect(url_for('patients_page'))
 
 
@@ -553,7 +637,7 @@ def alerts_page():
 def analytics_page():
     state    = _current_state()
     forecast = get_24h_forecast(ML_BUNDLE, state)
-    weekly   = get_weekly_trend(ML_BUNDLE, state)
+    monthly  = get_monthly_trend(ML_BUNDLE, state)
 
     resources   = get_resources()
     staff_summ  = get_staff_summary()
@@ -583,7 +667,7 @@ def analytics_page():
         })
 
     # KPIs
-    avg_daily   = int(sum(w['patients'] for w in weekly) / max(len(weekly), 1))
+    avg_daily   = int(sum(m['patients'] for m in monthly) / max(len(monthly), 1))
     beds_available_now = sum(b['available'] for b in bed_summ)
     beds_total_now     = sum(b['total'] for b in bed_summ)
     avg_bed_util = round((1 - beds_available_now / max(beds_total_now, 1)) * 100, 1)
@@ -602,8 +686,8 @@ def analytics_page():
         resource_health=resource_health,
         staff_summary=staff_summ,
         bed_summary=bed_summ,
-        weekly_days=[w['day'] for w in weekly],
-        weekly_patients=[w['patients'] for w in weekly],
+        monthly_labels=[m['month'] for m in monthly],
+        monthly_patients=[m['patients'] for m in monthly],
         hourly_labels=[f['label'] for f in forecast],
         hourly_beds=[f['beds_needed'] for f in forecast],
         hourly_staff=[f['staff_needed'] for f in forecast],
@@ -633,7 +717,7 @@ def settings_page():
 
     return render_template('settings.html',
         page='settings', pa=_pa(),
-        depts=get_departments(), staff=get_staff(),
+        depts=get_departments(),
     )
 
 

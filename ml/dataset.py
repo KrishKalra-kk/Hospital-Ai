@@ -7,6 +7,8 @@ and UCI Diabetes 130-US Hospitals dataset characteristics.
 import numpy as np
 import pandas as pd
 import os
+import urllib.request
+import gzip
 
 DATA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "hospital_ops.csv")
 
@@ -26,25 +28,58 @@ def generate_dataset(n_days: int = 90, seed: int = 42) -> pd.DataFrame:
     BASE_STAFF_NIGHT = 18
     BASE_STAFF_EVENING = 25
 
+    # ── MIMIC-IV Real-World Pattern Extraction ──
+    MIMIC_URL = "https://physionet.org/files/mimic-iv-demo/2.2/hosp/admissions.csv.gz"
+    mimic_h = None
+    mimic_m = None
+    mimic_d = None
+
+    try:
+        print("[ML] Downloading MIMIC-IV Demo Hospital Dataset from PhysioNet...")
+        req = urllib.request.Request(MIMIC_URL, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            with gzip.GzipFile(fileobj=response) as gz:
+                df_mimic = pd.read_csv(gz)
+        print(f"[ML] Successfully loaded {len(df_mimic)} authentic patient admission records from MIMIC-IV.")
+        
+        df_mimic['admittime'] = pd.to_datetime(df_mimic['admittime'])
+        
+        # Calculate real-world distributions and normalize around 1.0
+        h_dist = df_mimic['admittime'].dt.hour.value_counts(normalize=True).sort_index()
+        mimic_h = np.array([h_dist.get(i, 1/24.0) for i in range(24)]) * 24.0
+        
+        m_dist = df_mimic['admittime'].dt.month.value_counts(normalize=True).sort_index()
+        mimic_m = np.array([m_dist.get(i, 1/12.0) for i in range(1, 13)]) * 12.0
+        
+        d_dist = df_mimic['admittime'].dt.dayofweek.value_counts(normalize=True).sort_index()
+        mimic_d = np.array([d_dist.get(i, 1/7.0) for i in range(7)]) * 7.0
+
+    except Exception as e:
+        print(f"[WARNING] Could not fetch MIMIC-IV Demo dataset ({e}). Using mathematical approximations.")
+
     for day in range(n_days):
         day_of_week = day % 7           # 0=Mon, 6=Sun
         month = (day // 30) % 12 + 1   # 1-12
         is_weekend = day_of_week >= 5
 
-        # Seasonal factor: higher in winter months (Dec-Feb)
-        seasonal = 1.0 + 0.15 * np.cos((month - 1) * 2 * np.pi / 12)
-
-        # Day-of-week factor
-        dow_factor = 1.12 if is_weekend else 1.0
+        if mimic_h is not None:
+            # Use real-world patterns
+            seasonal = mimic_m[month - 1]
+            dow_factor = mimic_d[day_of_week]
+        else:
+            # Synthetic mathematical fallback
+            seasonal = 1.0 + 0.15 * np.cos((month - 1) * 2 * np.pi / 12)
+            dow_factor = 1.12 if is_weekend else 1.0
 
         for hour in range(24):
-            # ── Hour of day patient arrival pattern ──
-            # Peak: 9-11am emergency arrivals + 5-8pm evening surge
-            hour_factor = (
-                0.45 + 0.55 * np.exp(-((hour - 10) ** 2) / 8) +
-                0.35 * np.exp(-((hour - 18) ** 2) / 6) +
-                0.10 * np.exp(-((hour - 3) ** 2) / 4)   # small night cluster
-            )
+            if mimic_h is not None:
+                hour_factor = mimic_h[hour]
+            else:
+                hour_factor = (
+                    0.45 + 0.55 * np.exp(-((hour - 10) ** 2) / 8) +
+                    0.35 * np.exp(-((hour - 18) ** 2) / 6) +
+                    0.10 * np.exp(-((hour - 3) ** 2) / 4)
+                )
 
             base_er_arrivals = int(rng.poisson(8 * hour_factor * seasonal * dow_factor))
 
@@ -129,7 +164,7 @@ def generate_dataset(n_days: int = 90, seed: int = 42) -> pd.DataFrame:
 def save_dataset(df: pd.DataFrame) -> str:
     os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
     df.to_csv(DATA_PATH, index=False)
-    print(f"[OK] Dataset saved: {len(df)} rows → {DATA_PATH}")
+    print(f"[OK] Dataset saved: {len(df)} rows -> {DATA_PATH}")
     return DATA_PATH
 
 

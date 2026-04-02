@@ -163,3 +163,34 @@ def get_weekly_trend(bundle: dict, current_state: dict) -> list:
             daily_patients += max(0, int(bundle["patients"]["model"].predict(X)[0]))
         result.append({"day": days[dow], "patients": daily_patients})
     return result
+
+
+def get_monthly_trend(bundle: dict, current_state: dict) -> list:
+    """Returns 12-month aggregate forecast (Jan–Dec)."""
+    beds_available = current_state.get("beds_available", 30)
+    icu_occupied = current_state.get("icu_occupied", 8)
+    icu_available = current_state.get("icu_available", 12)
+    staff_count = current_state.get("staff_count", 25)
+    equipment_in_use = current_state.get("equipment_in_use", 12)
+    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    result = []
+    for m_idx in range(12):
+        m = m_idx + 1
+        seasonal = _seasonal_factor(m)
+        monthly_patients = 0
+        # Sample across representative days (weekday + weekend) & hours
+        for dow in [1, 3, 5]:          # Tue, Thu, Sat
+            is_weekend = dow >= 5
+            for h in [8, 12, 16, 20]:
+                X = _build_feature_vector(
+                    h, dow, m, is_weekend,
+                    beds_available, icu_occupied, icu_available,
+                    staff_count, _shift_for_hour(h), 5,
+                    equipment_in_use, seasonal
+                )
+                monthly_patients += max(0, int(bundle["patients"]["model"].predict(X)[0]))
+        # Scale: 3 sampled days × 4 hours → estimate for ~30 days
+        monthly_patients = int(monthly_patients * (30 / 3))
+        result.append({"month": months[m_idx], "patients": monthly_patients})
+    return result

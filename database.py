@@ -110,7 +110,7 @@ def create_db():
         FOREIGN KEY (department_id) REFERENCES departments(id)
     )""")
 
-    # ── Legacy resources (Equipment/Mobility general) ──
+    # ── Hospital Equipment & Services ──
     c.execute("""CREATE TABLE IF NOT EXISTS resources (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -121,8 +121,11 @@ def create_db():
         in_use INTEGER DEFAULT 0,
         maintenance INTEGER DEFAULT 0,
         status TEXT DEFAULT 'normal',
+        patient_id INTEGER,
+        location TEXT,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (department_id) REFERENCES departments(id)
+        FOREIGN KEY (department_id) REFERENCES departments(id),
+        FOREIGN KEY (patient_id) REFERENCES patients(id)
     )""")
 
     # ── Staff ──
@@ -179,6 +182,24 @@ def create_db():
         recorded_at TEXT DEFAULT CURRENT_TIMESTAMP
     )""")
 
+    # ── Trauma Bays ──
+    c.execute("""CREATE TABLE IF NOT EXISTS trauma_bays (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bay_name TEXT UNIQUE NOT NULL,
+        level TEXT NOT NULL DEFAULT 'Level II',
+        status TEXT DEFAULT 'Available',
+        current_case TEXT,
+        triage_class TEXT DEFAULT 'Level II',
+        blood_ready TEXT DEFAULT 'Pending Crossmatch',
+        imaging_status TEXT DEFAULT 'Pending',
+        equipment_ready INTEGER DEFAULT 1,
+        nurse_assigned TEXT,
+        doctor_assigned TEXT,
+        activated_at TEXT,
+        notes TEXT,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+
     # ── App settings (theme, preferences) ──
     c.execute("""CREATE TABLE IF NOT EXISTS app_settings (
         key TEXT PRIMARY KEY,
@@ -215,6 +236,20 @@ def migrate_schema():
         c.execute("ALTER TABLE beds ADD COLUMN room_number TEXT")
     if not has_column('beds', 'capacity'):
         c.execute("ALTER TABLE beds ADD COLUMN capacity INTEGER DEFAULT 1")
+
+    # Resources table new columns
+    if not has_column('resources', 'patient_id'):
+        c.execute('ALTER TABLE resources ADD COLUMN patient_id INTEGER')
+    if not has_column('resources', 'location'):
+        c.execute('ALTER TABLE resources ADD COLUMN location TEXT')
+
+    # Trauma Bays new columns
+    try:
+        if not has_column('trauma_bays', 'triage_class'): c.execute("ALTER TABLE trauma_bays ADD COLUMN triage_class TEXT DEFAULT 'Level II'")
+        if not has_column('trauma_bays', 'blood_ready'): c.execute("ALTER TABLE trauma_bays ADD COLUMN blood_ready TEXT DEFAULT 'Pending Crossmatch'")
+        if not has_column('trauma_bays', 'imaging_status'): c.execute("ALTER TABLE trauma_bays ADD COLUMN imaging_status TEXT DEFAULT 'Pending'")
+    except sqlite3.OperationalError:
+        pass
 
     # Ensure app_settings exists if migrate called directly
     c.execute("""CREATE TABLE IF NOT EXISTS app_settings (
@@ -267,6 +302,7 @@ def _seed(conn):
         ('Orthopedics',   'Bone and joint treatment',         3, 20, '🦴'),
         ('Neurology',     'Brain and nervous system care',    4, 10, '🧠'),
         ('Maternity',     'Pregnancy and childbirth care',    2, 15, '🤱'),
+        ('Step-Down Ward','Transitional care from ICU',       3, 15, '🔽'),
     ]
     for d in departments:
         conn.execute("INSERT INTO departments (name,description,floor,total_beds,icon) VALUES (?,?,?,?,?)", d)
@@ -280,6 +316,7 @@ def _seed(conn):
         'Orthopedics': [('Single', 3, 'Ortho Ward'), ('General', 3, 'Ortho Bay')],
         'Neurology': [('Single', 4, 'Neuro Ward'), ('ICU', 4, 'NICU')],
         'Maternity': [('Single', 2, 'Labor & Delivery'), ('Deluxe', 2, 'Suite')],
+        'Step-Down Ward': [('Single', 3, 'Step-Down A'), ('General', 3, 'Step-Down B')],
     }
     bed_counts = {'ICU': 5, 'General': 8, 'Single': 6, 'Deluxe': 3}
     status_weights = ['Available'] * 5 + ['Occupied'] * 4 + ['Maintenance']
@@ -489,6 +526,99 @@ def _seed(conn):
     ]
     for a in alerts_data:
         conn.execute("INSERT INTO alerts (type,severity,message,department) VALUES (?,?,?,?)", a)
+
+    # ── Hospital Equipment & Services ──
+    # (name, category, department_id, total, available, in_use, maintenance, location)
+    equipment = [
+        # Diagnostic Imaging
+        ('MRI Scanner',           'Diagnostic Imaging', 5, 2, 1, 1, 0, 'Radiology Wing'),
+        ('CT Scanner',            'Diagnostic Imaging', 5, 3, 1, 2, 0, 'Radiology Wing'),
+        ('X-Ray Machine',         'Diagnostic Imaging', 1, 5, 2, 3, 0, 'Radiology Wing'),
+        ('Ultrasound Scanner',    'Diagnostic Imaging', 8, 4, 2, 2, 0, 'OPD Block'),
+        ('Mammography Unit',      'Diagnostic Imaging', 5, 1, 0, 1, 0, 'Radiology Wing'),
+        ('Fluoroscopy Machine',   'Diagnostic Imaging', 5, 2, 1, 1, 0, 'Radiology Wing'),
+        # Monitoring Equipment
+        ('ECG Machine',           'Monitoring Equipment', 5, 8, 3, 4, 1, 'Cardiology Unit'),
+        ('Patient Monitor',       'Monitoring Equipment', 2, 25, 8, 15, 2, 'ICU / Wards'),
+        ('Pulse Oximeter',        'Monitoring Equipment', 2, 30, 12, 16, 2, 'All Wards'),
+        ('Blood Pressure Monitor','Monitoring Equipment', 3, 20, 8, 10, 2, 'All Wards'),
+        ('Fetal Monitor',         'Monitoring Equipment', 8, 4, 2, 2, 0, 'Maternity Ward'),
+        ('Cardiac Monitor',       'Monitoring Equipment', 5, 10, 4, 5, 1, 'Cardiology / ICU'),
+        ('Capnograph',            'Monitoring Equipment', 2, 6, 3, 3, 0, 'ICU'),
+        # Surgical
+        ('Surgery Room (OT)',     'Surgical', 1, 6, 2, 3, 1, 'OT Block'),
+        ('Surgical Instrument Set','Surgical', 1, 15, 6, 8, 1, 'OT Sterilization'),
+        ('Anesthesia Machine',    'Surgical', 1, 6, 2, 3, 1, 'OT Block'),
+        ('Surgical Light (LED)',  'Surgical', 1, 8, 3, 4, 1, 'OT Block'),
+        ('Electrocautery Unit',   'Surgical', 1, 5, 2, 3, 0, 'OT Block'),
+        ('Laparoscopy Tower',     'Surgical', 1, 3, 1, 2, 0, 'OT Block'),
+        ('Autoclave / Sterilizer','Surgical', 1, 4, 2, 2, 0, 'CSSD'),
+        # Emergency & Transport
+        ('Ambulance',             'Emergency & Transport', 1, 6, 3, 2, 1, 'Parking Bay'),
+        ('Defibrillator',         'Emergency & Transport', 2, 8, 4, 3, 1, 'ICU / Emergency'),
+        ('Crash Cart',            'Emergency & Transport', 1, 6, 3, 3, 0, 'All Floors'),
+        ('Portable Suction Unit', 'Emergency & Transport', 1, 10, 5, 4, 1, 'Emergency'),
+        ('Spine Board',           'Emergency & Transport', 1, 8, 5, 2, 1, 'Emergency'),
+        ('Cervical Collar Set',   'Emergency & Transport', 1, 12, 8, 3, 1, 'Emergency'),
+        # Laboratory
+        ('Blood Testing Lab',     'Laboratory', 1, 2, 1, 1, 0, 'Lab Block'),
+        ('Pathology Lab',         'Laboratory', 1, 2, 1, 1, 0, 'Lab Block'),
+        ('Microbiology Lab',      'Laboratory', 1, 1, 0, 1, 0, 'Lab Block'),
+        ('Biochemistry Analyzer', 'Laboratory', 1, 3, 1, 2, 0, 'Lab Block'),
+        ('Hematology Analyzer',   'Laboratory', 1, 3, 1, 2, 0, 'Lab Block'),
+        ('Blood Gas Analyzer',    'Laboratory', 2, 2, 1, 1, 0, 'ICU Lab'),
+        ('Urine Analyzer',        'Laboratory', 1, 2, 1, 1, 0, 'Lab Block'),
+        # Consumables (stock tracking only — in_use=0 since consumables are dispensed, not returned)
+        ('Surgical Gloves (boxes)','Consumables', None, 500, 480, 0, 20, 'Central Store'),
+        ('Syringes (boxes)',       'Consumables', None, 400, 380, 0, 20, 'Central Store'),
+        ('IV Sets',                'Consumables', None, 300, 290, 0, 10, 'Central Store'),
+        ('Surgical Masks (boxes)', 'Consumables', None, 600, 580, 0, 20, 'Central Store'),
+        ('Bandages & Dressings',   'Consumables', None, 250, 240, 0, 10, 'Central Store'),
+        ('Suture Kits',            'Consumables', None, 200, 190, 0, 10, 'OT Store'),
+        ('PPE Kits',               'Consumables', None, 150, 145, 0, 5, 'Central Store'),
+        ('Catheter Sets',          'Consumables', None, 100, 95, 0, 5, 'Central Store'),
+        # Infrastructure
+        ('Oxygen Supply System',  'Infrastructure', None, 3, 2, 1, 0, 'Plant Room'),
+        ('Central Sterilization', 'Infrastructure', None, 2, 1, 1, 0, 'CSSD'),
+        ('Pharmacy Dispensing',   'Infrastructure', None, 3, 1, 2, 0, 'Pharmacy Block'),
+        ('Laundry & Linen',       'Infrastructure', None, 2, 1, 1, 0, 'Laundry Block'),
+        ('HVAC / Air Handling',   'Infrastructure', None, 4, 3, 1, 0, 'Plant Room'),
+        ('Biomedical Waste Mgmt', 'Infrastructure', None, 3, 1, 2, 0, 'Waste Yard'),
+        # Scheduling
+        ('OT Scheduling Slot',    'Scheduling', 1, 12, 4, 6, 2, 'OT Block'),
+        ('ICU Admission Slot',    'Scheduling', 2, 8, 3, 5, 0, 'ICU'),
+        ('Radiology Slot',        'Scheduling', 5, 10, 4, 5, 1, 'Radiology Wing'),
+        ('Dialysis Slot',         'Scheduling', 7, 6, 2, 4, 0, 'Nephrology'),
+    ]
+    for eq in equipment:
+        name, cat, dept_id, total, avail, in_use, maint, loc = eq
+        # Determine status
+        if avail == 0:
+            status = 'critical'
+        elif total > 0 and avail / total < 0.2:
+            status = 'warning'
+        else:
+            status = 'normal'
+        conn.execute("""INSERT INTO resources
+            (name, category, department_id, total, available, in_use, maintenance, status, location)
+            VALUES (?,?,?,?,?,?,?,?,?)""",
+            (name, cat, dept_id, total, avail, in_use, maint, status, loc))
+
+    # ── Trauma Bays ──
+    trauma_bays = [
+        ('Trauma Bay 1', 'Level I',   'Occupied', 'MVA — Multiple injuries', 1, 'Nurse Rekha Santos',  'Dr. Anjali Sharma',
+         (datetime.now() - timedelta(hours=2)).strftime('%Y-%m-%d %H:%M:%S'), 'Active resuscitation'),
+        ('Trauma Bay 2', 'Level I',   'Available', None, 1, None, None, None, 'Fully stocked & ready'),
+        ('Trauma Bay 3', 'Level II',  'Occupied', 'Fall from height — Spinal eval', 1, 'Nurse Carlos Santos', 'Dr. Rohit Kumar',
+         (datetime.now() - timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S'), 'Secondary survey in progress'),
+        ('Trauma Bay 4', 'Level II',  'Cleaning', None, 1, None, None, None, 'Turnover in progress — est. 15 min'),
+        ('Trauma Bay 5', 'Level III', 'Available', None, 1, None, None, None, 'Minor trauma / observation'),
+        ('Trauma Bay 6', 'Level III', 'Maintenance', None, 0, None, None, None, 'Equipment calibration scheduled'),
+    ]
+    for tb in trauma_bays:
+        conn.execute("""INSERT INTO trauma_bays
+            (bay_name, level, status, current_case, equipment_ready, nurse_assigned, doctor_assigned, activated_at, notes)
+            VALUES (?,?,?,?,?,?,?,?,?)""", tb)
 
     # ── Hourly data ──
     hourly = [
@@ -876,17 +1006,48 @@ def delete_life_support(lid):
     conn.close()
 
 
-# ── Resources (legacy) ──
+# ── Hospital Equipment & Services ──
 def get_resources():
     conn = get_conn()
     rows = conn.execute("""
-        SELECT r.*, d.name as department_name
+        SELECT r.*, d.name as department_name, p.name as patient_name
         FROM resources r
         LEFT JOIN departments d ON r.department_id = d.id
+        LEFT JOIN patients p ON r.patient_id = p.id
         ORDER BY r.category, r.name
     """).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def get_resources_by_category():
+    """Return resources grouped by category as {category: [items]}."""
+    items = get_resources()
+    grouped = {}
+    for r in items:
+        grouped.setdefault(r['category'], []).append(r)
+    return grouped
+
+
+def get_resource_category_summary():
+    """Return summary per category with totals, utilization etc."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT category,
+               COUNT(*) as item_count,
+               SUM(total) as total, SUM(available) as available,
+               SUM(in_use) as in_use, SUM(maintenance) as maintenance,
+               SUM(CASE WHEN status='critical' THEN 1 ELSE 0 END) as critical_items,
+               SUM(CASE WHEN status='warning' THEN 1 ELSE 0 END) as warning_items
+        FROM resources GROUP BY category ORDER BY category
+    """).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['utilization'] = round((d['in_use'] / max(d['total'], 1)) * 100, 1)
+        result.append(d)
+    return result
 
 
 def update_resource(resource_id, available, in_use, maintenance):
@@ -916,18 +1077,33 @@ def get_resource_summary():
     return [dict(r) for r in rows]
 
 
-def add_resource(name, category, department_id, total, available, in_use, maintenance):
+def add_resource(name, category, department_id, total, available, in_use, maintenance, location=''):
     status = 'normal'
     if available == 0:
         status = 'critical'
     elif total and available / total < 0.2:
         status = 'warning'
-        
     conn = get_conn()
     conn.execute("""
-        INSERT INTO resources (name, category, department_id, total, available, in_use, maintenance, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (name, category, department_id, total, available, in_use, maintenance, status))
+        INSERT INTO resources (name, category, department_id, total, available, in_use, maintenance, status, location)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (name, category, department_id, total, available, in_use, maintenance, status, location))
+    conn.commit()
+    conn.close()
+
+
+def edit_resource(resource_id, name, category, department_id, total, available, in_use, maintenance, location=''):
+    status = 'normal'
+    if available == 0:
+        status = 'critical'
+    elif total and available / total < 0.2:
+        status = 'warning'
+    conn = get_conn()
+    conn.execute("""
+        UPDATE resources SET name=?, category=?, department_id=?, total=?, available=?,
+            in_use=?, maintenance=?, status=?, location=?, updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+    """, (name, category, department_id, total, available, in_use, maintenance, status, location, resource_id))
     conn.commit()
     conn.close()
 
@@ -938,6 +1114,89 @@ def delete_resource(resource_id):
     conn.commit()
     conn.close()
 
+
+def toggle_resource_maintenance(resource_id, action):
+    """Move units to/from maintenance. action='to_maint' or 'from_maint'."""
+    conn = get_conn()
+    res = conn.execute("SELECT * FROM resources WHERE id=?", (resource_id,)).fetchone()
+    if not res:
+        conn.close()
+        return
+    if action == 'to_maint' and res['available'] > 0:
+        conn.execute("""UPDATE resources SET available=available-1, maintenance=maintenance+1,
+            status=CASE WHEN available-1=0 THEN 'critical'
+                        WHEN CAST((available-1) AS FLOAT)/NULLIF(total,0)<0.2 THEN 'warning'
+                        ELSE 'normal' END,
+            updated_at=CURRENT_TIMESTAMP WHERE id=?""", (resource_id,))
+    elif action == 'from_maint' and res['maintenance'] > 0:
+        conn.execute("""UPDATE resources SET available=available+1, maintenance=maintenance-1,
+            status=CASE WHEN available+1=0 THEN 'critical'
+                        WHEN CAST((available+1) AS FLOAT)/NULLIF(total,0)<0.2 THEN 'warning'
+                        ELSE 'normal' END,
+            updated_at=CURRENT_TIMESTAMP WHERE id=?""", (resource_id,))
+    conn.commit()
+    conn.close()
+
+
+# ── Trauma Bays ──
+def get_trauma_bays():
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM trauma_bays ORDER BY bay_name").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_trauma_summary():
+    conn = get_conn()
+    total = conn.execute("SELECT COUNT(*) as c FROM trauma_bays").fetchone()['c']
+    avail = conn.execute("SELECT COUNT(*) as c FROM trauma_bays WHERE status='Available'").fetchone()['c']
+    occ = conn.execute("SELECT COUNT(*) as c FROM trauma_bays WHERE status='Occupied'").fetchone()['c']
+    clean = conn.execute("SELECT COUNT(*) as c FROM trauma_bays WHERE status='Cleaning'").fetchone()['c']
+    maint = conn.execute("SELECT COUNT(*) as c FROM trauma_bays WHERE status='Maintenance'").fetchone()['c']
+    conn.close()
+    return {'total': total, 'available': avail, 'occupied': occ, 'cleaning': clean, 'maintenance': maint}
+
+
+def add_trauma_bay(bay_name, level='Level II', notes=''):
+    conn = get_conn()
+    try:
+        conn.execute("INSERT INTO trauma_bays (bay_name, level, notes) VALUES (?,?,?)",
+                     (bay_name, level, notes))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
+
+
+def update_trauma_bay(bay_id, status, current_case=None, nurse=None, doctor=None, notes=None, triage='Level II', blood='Pending Crossmatch', imaging='Pending'):
+    conn = get_conn()
+    activated = None
+    equip_ready = 1
+    if status == 'Occupied':
+        activated = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    elif status == 'Maintenance':
+        equip_ready = 0
+    elif status in ('Available', 'Cleaning'):
+        current_case = None
+        nurse = None
+        doctor = None
+    conn.execute("""UPDATE trauma_bays SET status=?, current_case=?, nurse_assigned=?,
+        doctor_assigned=?, activated_at=?, equipment_ready=?, notes=?,
+        triage_class=?, blood_ready=?, imaging_status=?,
+        updated_at=CURRENT_TIMESTAMP
+        WHERE id=?""",
+        (status, current_case, nurse, doctor, activated, equip_ready, notes, triage, blood, imaging, bay_id))
+    conn.commit()
+    conn.close()
+
+
+def delete_trauma_bay(bay_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM trauma_bays WHERE id=?", (bay_id,))
+    conn.commit()
+    conn.close()
 
 # ── Staff ──
 def get_staff():
@@ -1142,16 +1401,40 @@ def add_patient(name, age, gender, condition, severity, department_id, bed_numbe
     return patient_id
 
 
+def is_patient_on_ventilator(patient_id):
+    """Check if patient is currently assigned a ventilator."""
+    conn = get_conn()
+    row = conn.execute("SELECT assigned_ventilator_id FROM patients WHERE id=?", (patient_id,)).fetchone()
+    conn.close()
+    return row and row['assigned_ventilator_id'] is not None
+
+
+def wean_off_ventilator(patient_id):
+    """Remove ventilator assignment from a patient (weaning off)."""
+    conn = get_conn()
+    patient = conn.execute("SELECT assigned_ventilator_id FROM patients WHERE id=?", (patient_id,)).fetchone()
+    if patient and patient['assigned_ventilator_id']:
+        conn.execute("UPDATE life_support SET status='Available', patient_id=NULL, started_at=NULL WHERE id=?",
+                     (patient['assigned_ventilator_id'],))
+        conn.execute("UPDATE patients SET assigned_ventilator_id=NULL WHERE id=?", (patient_id,))
+    conn.commit()
+    conn.close()
+
+
 def discharge_patient(patient_id):
     conn = get_conn()
     patient = conn.execute("SELECT bed_number, assigned_ventilator_id, assigned_oxygen_id, assigned_staff_id, blood_group, blood_component, blood_units FROM patients WHERE id=?", (patient_id,)).fetchone()
+
+    # BLOCK: Do not allow discharge if patient is on a ventilator
+    if patient and patient['assigned_ventilator_id']:
+        conn.close()
+        return False  # Blocked — must wean off ventilator first
+
     if patient:
         # Free assigned bed
         conn.execute("UPDATE beds SET status='Available', patient_id=NULL WHERE id=(SELECT id FROM beds WHERE bed_code=?)", (patient['bed_number'],))
 
-        # Free ventilator and oxygen
-        if patient['assigned_ventilator_id']:
-            conn.execute("UPDATE life_support SET status='Available', patient_id=NULL, started_at=NULL WHERE id=?", (patient['assigned_ventilator_id'],))
+        # Free oxygen
         if patient['assigned_oxygen_id']:
             conn.execute("UPDATE life_support SET status='Available', patient_id=NULL, started_at=NULL WHERE id=?", (patient['assigned_oxygen_id'],))
 
@@ -1177,6 +1460,7 @@ def discharge_patient(patient_id):
 
     conn.commit()
     conn.close()
+    return True  # Success
 
 def get_patient_counts():
     conn = get_conn()
